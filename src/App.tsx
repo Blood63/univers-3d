@@ -8,7 +8,7 @@ import { bindInput, boot, frame } from './engine/runtime'
 import { sim } from './engine/state'
 import { createUniverse, type UniverseHandle } from './scene/world'
 import { loadTextures } from './scene/textures'
-import { applyAnisotropy } from './engine/texcache'
+import { applyAnisotropy, startHdUpgrade } from './engine/texcache'
 
 const glBridge: { current: THREE.WebGLRenderer | null } = { current: null }
 export function capturePng(): void {
@@ -36,6 +36,7 @@ function Scene({ textures }: { textures: Record<string, THREE.Texture> }) {
     const params = new URLSearchParams(location.search)
     try {
       boot(params.get('vue') || 'system')
+      startHdUpgrade(sim.quality)
     } catch (err) {
       const message = err instanceof Error ? err.stack ?? err.message : String(err)
       document.documentElement.dataset.booterr = message.slice(0, 500)

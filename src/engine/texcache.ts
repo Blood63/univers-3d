@@ -99,6 +99,42 @@ function emit(key: string, tex: THREE.Texture): void {
 let shed = false
 let loading = false
 
+const hdQueue: { key: string; url: string }[] = []
+
+export function queueHd(key: string, url: string): void {
+  hdQueue.push({ key, url })
+}
+
+/** Decode the full-resolution maps after the first frame and swap them in. */
+export function startHdUpgrade(quality: string): void {
+  if (quality === 'low' || hdQueue.length === 0) return
+  const loader = new THREE.TextureLoader()
+  const batch = hdQueue.splice(0, hdQueue.length)
+  for (const job of batch) {
+    loader.load(job.url, (nt) => {
+      const prev = slots.find((s) => s.key === job.key)
+      nt.colorSpace = prev?.tex.colorSpace ?? THREE.SRGBColorSpace
+      nt.anisotropy = Math.max(prev?.tex.anisotropy ?? 8, 8)
+      nt.wrapS = THREE.ClampToEdgeWrapping
+      nt.wrapT = THREE.ClampToEdgeWrapping
+      nt.generateMipmaps = true
+      nt.minFilter = THREE.LinearMipmapLinearFilter
+      if (prev) {
+        prev.tex = nt
+        prev.url = job.url
+        prev.bytes = 3840 * 1920 * 3
+        prev.resident = true
+        prev.last = ++clock
+      } else {
+        registerTexture(job.key, job.url, nt, 3840 * 1920 * 3)
+      }
+      const old = prev?.tex
+      emit(job.key, nt)
+      if (old && old !== nt) old.dispose()
+    })
+  }
+}
+
 export function streamTextures(distanceLy: number): void {
   if (!shed && distanceLy > 1800) {
     for (const s of slots) {

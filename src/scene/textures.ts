@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { proceduralFallback, registerTexture } from '../engine/texcache'
+import { proceduralFallback, queueHd, registerTexture } from '../engine/texcache'
 
 const FILES: Record<string, string> = {
   sun: 'textures/sun.jpg',
@@ -7,7 +7,8 @@ const FILES: Record<string, string> = {
   venus: 'textures/venus.jpg',
   earth: 'textures/earth_day.jpg',
   earthNight: 'textures/earth_night.jpg',
-  earthCloud: 'textures/earth_clouds.png',
+  earthCloud: 'textures/earth_clouds.jpg',
+  earthNormal: 'textures/earth_normal.jpg',
   earthSpec: 'textures/earth_spec.jpg',
   mars: 'textures/mars.jpg',
   jupiter: 'textures/jupiter.jpg',
@@ -18,6 +19,19 @@ const FILES: Record<string, string> = {
   moon: 'textures/moon.jpg',
   ceres: 'textures/ceres.jpg',
   pluto: 'textures/pluto.jpg',
+  io: 'textures/io.jpg',
+  europa: 'textures/europa.jpg',
+  ganymede: 'textures/ganymede.jpg',
+  callisto: 'textures/callisto.jpg',
+  enceladus: 'textures/enceladus.jpg',
+  titan: 'textures/titan.jpg',
+  cmb: 'textures/cmb.jpg',
+}
+
+/** Fast stand-in shown on frame 1. The full map replaces it once decoded. */
+function previewUrl(file: string): string {
+  const name = file.slice(file.lastIndexOf('/') + 1)
+  return `textures/preview/${name}`
 }
 
 function fallback(key: string): THREE.Texture {
@@ -33,28 +47,55 @@ export function loadTextures(onProgress: (ratio: number) => void): Promise<Recor
     entries.map(
       ([key, file]) =>
         new Promise<[string, THREE.Texture]>((resolve) => {
+          const full = base + file
+          const previewName = previewUrl(file)
+          const hasPreview = [
+            'earth_day.jpg',
+            'earth_night.jpg',
+            'earth_clouds.jpg',
+            'earth_normal.jpg',
+            'moon.jpg',
+            'mars.jpg',
+            'mercury.jpg',
+            'io.jpg',
+            'europa.jpg',
+            'ganymede.jpg',
+            'callisto.jpg',
+            'enceladus.jpg',
+            'titan.jpg',
+            'cmb.jpg',
+          ].some((n) => file.endsWith(n))
+          const preview = base + previewName
+          const finish = (t: THREE.Texture, url: string, bytes: number) => {
+            const linear = key === 'earthSpec' || key === 'saturnRing' || key === 'earthNormal'
+            t.colorSpace = linear ? THREE.LinearSRGBColorSpace : THREE.SRGBColorSpace
+            t.anisotropy = 8
+            t.wrapS = THREE.ClampToEdgeWrapping
+            t.wrapT = THREE.ClampToEdgeWrapping
+            t.generateMipmaps = true
+            t.minFilter = THREE.LinearMipmapLinearFilter
+            registerTexture(key, url, t, bytes)
+            if (url !== full && key !== 'sun' && key !== 'jupiter' && key !== 'saturn' && key !== 'uranus' && key !== 'neptune' && key !== 'ceres' && key !== 'pluto' && key !== 'venus' && key !== 'saturnRing' && key !== 'earthSpec') {
+              queueHd(key, full)
+            }
+            done += 1
+            onProgress(done / entries.length)
+            resolve([key, t])
+          }
+          const giveUp = () => {
+            const fb = fallback(key)
+            finish(fb, full, 64 * 64 * 4)
+          }
+          if (!hasPreview) {
+            loader.load(full, (t) => finish(t, full, 2048 * 1024 * 3), undefined, giveUp)
+            return
+          }
           loader.load(
-            base + file,
-            (t) => {
-              const linear = key === 'earthSpec' || key === 'saturnRing'
-              t.colorSpace = linear ? THREE.LinearSRGBColorSpace : THREE.SRGBColorSpace
-              t.anisotropy = 8
-              t.wrapS = THREE.ClampToEdgeWrapping
-              t.wrapT = THREE.ClampToEdgeWrapping
-              t.generateMipmaps = true
-              t.minFilter = THREE.LinearMipmapLinearFilter
-              registerTexture(key, base + file, t, 1024 * 1024 * 3)
-              done += 1
-              onProgress(done / entries.length)
-              resolve([key, t])
-            },
+            preview,
+            (t) => finish(t, preview, 512 * 256 * 3),
             undefined,
             () => {
-              done += 1
-              onProgress(done / entries.length)
-              const fb = fallback(key)
-              registerTexture(key, base + file, fb, 64 * 64 * 4)
-              resolve([key, fb])
+              loader.load(full, (t) => finish(t, full, 2048 * 1024 * 3), undefined, giveUp)
             },
           )
         }),

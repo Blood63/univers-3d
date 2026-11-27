@@ -164,6 +164,12 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
     if (id === 'lune') return moonTex
     if (id === 'ceres') return tex.ceres ?? blank
     if (id === 'pluton') return tex.pluto ?? blank
+    if (id === 'io') return tex.io ?? proc.io
+    if (id === 'europe') return tex.europa ?? proc.europe
+    if (id === 'ganymede') return tex.ganymede ?? proc.ganymede
+    if (id === 'callisto') return tex.callisto ?? proc.callisto
+    if (id === 'encelade') return tex.enceladus ?? proc.encelade
+    if (id === 'titan') return tex.titan ?? proc.titan
     return (proc as Record<string, THREE.Texture>)[id] ?? proc.default
   }
 
@@ -329,6 +335,26 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
     else if (b.id === 'uranus') watchDay('uranus')
     else if (b.id === 'neptune') watchDay('neptune')
     else if (b.id === 'lune') watchDay('moon')
+    else if (b.id === 'io') watchDay('io')
+    else if (b.id === 'europe') watchDay('europa')
+    else if (b.id === 'ganymede') watchDay('ganymede')
+    else if (b.id === 'callisto') watchDay('callisto')
+    else if (b.id === 'encelade') watchDay('enceladus')
+    else if (b.id === 'titan') watchDay('titan')
+    else if (b.id === 'terre') {
+      followTexture('earth', (t) => {
+        if (node.mat?.uniforms.uDay) node.mat.uniforms.uDay.value = t
+      })
+      followTexture('earthNight', (t) => {
+        if (node.mat?.uniforms.uNight) node.mat.uniforms.uNight.value = t
+      })
+      followTexture('earthCloud', (t) => {
+        if (node.mat?.uniforms.uCloud) node.mat.uniforms.uCloud.value = t
+      })
+      followTexture('earthNormal', (t) => {
+        if (node.mat?.uniforms.uNormal) node.mat.uniforms.uNormal.value = t
+      })
+    }
     if (b.kind === 'star') {
       const mat = new THREE.ShaderMaterial({
         uniforms: {
@@ -379,9 +405,15 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
           uNight: { value: tex.earthNight ?? blank },
           uSpec: { value: tex.earthSpec ?? blank },
           uCloud: { value: tex.earthCloud ?? blank },
+          uNormal: { value: tex.earthNormal ?? blank },
           uHasNight: { value: b.id === 'terre' ? 1 : 0 },
           uHasSpec: { value: b.id === 'terre' ? 1 : 0 },
           uHasCloud: { value: b.id === 'terre' ? 1 : 0 },
+          uHasNormal: { value: b.id === 'terre' ? 1 : 0 },
+          uCloudLum: { value: b.id === 'terre' ? 1 : 0 },
+          uOcc: { value: new THREE.Vector3() },
+          uOccR: { value: 1 },
+          uHasOcc: { value: 0 },
           uCloudOff: { value: 0 },
           uTime: { value: 0 },
           uAurora: { value: b.flags?.includes('aurora') ? 1 : 0 },
@@ -396,6 +428,13 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
           uFlow: { value: b.flags?.includes('flow') ? 0.04 : 0 },
           uTwoTone: { value: b.flags?.includes('twotone') ? 1 : 0 },
           uHex: { value: b.flags?.includes('hexagon') ? 1 : 0 },
+          uMoon0: { value: new THREE.Vector3() },
+          uMoon1: { value: new THREE.Vector3() },
+          uMoon2: { value: new THREE.Vector3() },
+          uMoonR0: { value: 1 },
+          uMoonR1: { value: 1 },
+          uMoonR2: { value: 1 },
+          uMoonN: { value: 0 },
         },
         vertexShader: rockVertex,
         fragmentShader: gas ? gasFragment : rockFragment,
@@ -609,6 +648,28 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
       tail.name = 'dust'
       ion.name = 'ion'
     }
+    if (b.flags?.includes('ellipsoid') && node.mesh instanceof THREE.Mesh) {
+      const ay = 513 / 1161
+      const az = 852 / 1161
+      const geo = new THREE.SphereGeometry(1, seg, Math.max(12, Math.floor(seg / 2)))
+      const pos = geo.getAttribute('position')
+      const nrm = geo.getAttribute('normal')
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i)
+        const y = pos.getY(i) * ay
+        const z = pos.getZ(i) * az
+        pos.setXYZ(i, x, y, z)
+        const nx = x
+        const ny = y / (ay * ay)
+        const nz = z / (az * az)
+        const len = Math.hypot(nx, ny, nz) || 1
+        nrm.setXYZ(i, nx / len, ny / len, nz / len)
+      }
+      pos.needsUpdate = true
+      nrm.needsUpdate = true
+      geo.computeBoundingSphere()
+      node.mesh.geometry = geo
+    }
     if (b.flags?.includes('bilobe')) {
       const lobe = new THREE.Mesh(sphere, node.mat ?? new THREE.MeshStandardMaterial({ color: b.color, roughness: 0.92 }))
       lobe.position.x = 0.7
@@ -742,7 +803,7 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
   )
   shock.scale.set(1.02, 0.9, 1.25)
   root.add(shock)
-  const cosmos = createCosmos()
+  const cosmos = createCosmos(tex.cmb)
   root.add(cosmos.object)
   const navMats: THREE.MeshStandardMaterial[] = []
   root.traverse((obj) => {
@@ -1007,7 +1068,53 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
         const mat = shield && !Array.isArray(shield.material) ? (shield.material as THREE.MeshStandardMaterial) : undefined
         if (mat) mat.emissiveIntensity = distToSun(id) < 0.28 ? 2.4 : 0.12
       }
+      if (node.mat?.uniforms.uHasOcc && b.kind === 'moon' && b.parent) {
+        const parent = nodes.get(b.parent)
+        if (parent) {
+          ;(node.mat.uniforms.uOcc.value as THREE.Vector3).copy(parent.group.position)
+          node.mat.uniforms.uOccR.value = parent.group.scale.x
+          node.mat.uniforms.uHasOcc.value = 1
+        }
+      }
       if (node.group.visible) shownBodies += 1
+    }
+    const jupMat = nodes.get('jupiter')?.mat
+    const satMat = nodes.get('saturne')?.mat
+    if (jupMat?.uniforms.uMoonN) {
+      jupMat.uniforms.uMoonN.value = 3
+      const io = nodes.get('io')
+      const eu = nodes.get('europe')
+      const ga = nodes.get('ganymede')
+      if (io) {
+        ;(jupMat.uniforms.uMoon0.value as THREE.Vector3).copy(io.group.position)
+        jupMat.uniforms.uMoonR0.value = io.group.scale.x
+      }
+      if (eu) {
+        ;(jupMat.uniforms.uMoon1.value as THREE.Vector3).copy(eu.group.position)
+        jupMat.uniforms.uMoonR1.value = eu.group.scale.x
+      }
+      if (ga) {
+        ;(jupMat.uniforms.uMoon2.value as THREE.Vector3).copy(ga.group.position)
+        jupMat.uniforms.uMoonR2.value = ga.group.scale.x
+      }
+    }
+    if (satMat?.uniforms.uMoonN) {
+      satMat.uniforms.uMoonN.value = 3
+      const ti = nodes.get('titan')
+      const rh = nodes.get('rhea')
+      const en = nodes.get('encelade')
+      if (ti) {
+        ;(satMat.uniforms.uMoon0.value as THREE.Vector3).copy(ti.group.position)
+        satMat.uniforms.uMoonR0.value = ti.group.scale.x
+      }
+      if (rh) {
+        ;(satMat.uniforms.uMoon1.value as THREE.Vector3).copy(rh.group.position)
+        satMat.uniforms.uMoonR1.value = rh.group.scale.x
+      }
+      if (en) {
+        ;(satMat.uniforms.uMoon2.value as THREE.Vector3).copy(en.group.position)
+        satMat.uniforms.uMoonR2.value = en.group.scale.x
+      }
     }
     sim.activeBodies = shownBodies
     const blink = Math.sin(time * 5.2) > 0 ? 7 : 0.15

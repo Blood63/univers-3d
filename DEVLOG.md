@@ -422,6 +422,35 @@ Défauts corrigés
 - Le nuage d’Oort et la toile sont des champs instanciés, pas des corps sélectionnables un par un. Les structures nommées (vides, murs, Laniakea) le sont.
 - Le fondu du CMB est une anisotropie procédurale rappelant Planck, pas le fichier HEALPix officiel.
 
+## Cycle rendu — cartes, ombres, Hauméa, Planck
+
+Avant : cartes 2k très compressées (la Terre jour faisait 462 Ko en 4096²), Io et les lunes galiléennes procédurales, Hauméa sphérique, CMB synthétique, pas d’ombre de lune sur Jupiter. Build Vite 2,81 s, script 1 320 772 octets.
+
+Après : build Vite 2,84 s, script 1 326 430 octets, textures `public/textures` ~26 Mo. Chrome headless, 0 erreur console / shader. Draw calls : Terre 56, Lune 59, Jupiter 51, Io 49, Hauméa 48, CMB 78.
+
+Ce qui est fermé
+
+- Terre, Lune, Mars, Mercure : cartes Solar System Scope 8k (CC BY 4.0) ramenées à 3840×1920, plus normale terrestre branchée dans le shader. Aperçu 512 px dès la première frame, carte pleine ensuite. Le mobile (qualité basse) reste sur l’aperçu.
+- Io (Galileo/Voyager, domaine public), Europe (CC0), Ganymède et Callisto (planches USGS), Encelade, Titan (Cassini).
+- Fond diffus : carte Planck SMICA (ESA, CC BY 4.0) échantillonnée sur la sphère.
+- Ombres de transit : Io, Europe et Ganymède sur Jupiter ; Titan, Rhéa et Encelade sur Saturne. Chaque lune reçoit aussi l’ombre de sa planète.
+- Hauméa : ellipsoïde 1161 × 852 × 513 km, normales corrigées, anneau fin.
+- Aurore terrestre : plus de damier vert au pôle (le masque suivait la normale perturbée).
+
+Défauts corrigés dans ce cycle
+
+1. La normale dérivée explosait vers les pôles et allumait l’aurore en damier.
+2. Les nuages JPEG n’avaient pas d’alpha : le shader lit la luminance pour cette carte.
+3. Le décodage HD partait avant le choix Mobile / Élevé : il attend `boot()`, et le mobile ne charge pas les 3840.
+
+Encore pas excellent
+
+- Ganymède et Callisto gardent le graticule et les noms de la planche USGS : aucune mosaïque Galileo sans annotation n’était disponible sous licence libre.
+- 3840 px, pas des tuiles gigapixel. Le micro-détail procédural couvre le dernier kilomètre.
+- Hauméa n’a pas de carte photographique.
+- Les FPS SwiftShader restent entre 5 et 28. Le 60–144 FPS d’un GPU de bureau n’est toujours pas mesuré ici.
+- L’ombre d’une lune n’est visible que lorsqu’elle passe vraiment devant le Soleil vu de la surface. Le cadrage de Jupiter à la date du jour ne montrait pas de transit.
+
 ## Navigation — vue aérienne libre
 
 La caméra ne se verrouille plus sur un astre. Le mode par défaut au lancement est une vue carte, du même genre qu’un globe ou une carte de stratégie : un pivot, une distance, un cap et une inclinaison.
