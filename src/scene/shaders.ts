@@ -108,6 +108,12 @@ uniform float uClose;
 uniform float uRegolith;
 uniform float uFlow;
 uniform float uTwoTone;
+uniform sampler2D uNormal;
+uniform float uHasNormal;
+uniform float uCloudLum;
+uniform vec3 uOcc;
+uniform float uOccR;
+uniform float uHasOcc;
 
 float hash13(vec3 p){ return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
 float vnoise(vec3 p){
@@ -130,17 +136,30 @@ void main() {
   float micro2 = fbm3(np * 42.0 + 3.0);
   vec3 n = normalize(vNormal + np * (micro - 0.5) * uClose * 0.22);
   vec3 l = normalize(uSun - vWorld);
+  vec2 uv = vec2(fract(vUv.x + uTime * uFlow), vUv.y);
+  if (uHasNormal > 0.5) {
+    vec3 mapN = texture2D(uNormal, vUv).xyz * 2.0 - 1.0;
+    vec3 dp1 = dFdx(vWorld);
+    vec3 dp2 = dFdy(vWorld);
+    vec2 duv1 = dFdx(vUv);
+    vec2 duv2 = dFdy(vUv);
+    vec3 T = normalize(dp1 * duv2.y - dp2 * duv1.y);
+    vec3 B = normalize(cross(n, T));
+    float poleSafe = 1.0 - smoothstep(0.78, 0.96, abs(vNormal.y));
+    n = normalize(n * mapN.z + (T * mapN.x + B * mapN.y) * 0.85 * poleSafe);
+  }
   float ndl = dot(n, l);
   float dayF = smoothstep(-0.12, 0.18, ndl);
-  vec2 uv = vec2(fract(vUv.x + uTime * uFlow), vUv.y);
   vec3 day = texture2D(uDay, uv).rgb * uTint;
   day *= mix(1.0, 0.78 + 0.28 * micro2, uClose);
   vec3 nightTex = texture2D(uNight, vUv).rgb;
   float cloud = 0.0;
   if (uHasCloud > 0.5) {
     vec2 cuv = vec2(fract(vUv.x + uCloudOff), vUv.y);
-    cloud = texture2D(uCloud, cuv).a;
-    float shadow = texture2D(uCloud, vec2(fract(cuv.x + 0.012 * ndl), cuv.y)).a;
+    vec4 csamp = texture2D(uCloud, cuv);
+    cloud = uCloudLum > 0.5 ? csamp.r : csamp.a;
+    vec4 csh = texture2D(uCloud, vec2(fract(cuv.x + 0.012 * ndl), cuv.y));
+    float shadow = uCloudLum > 0.5 ? csh.r : csh.a;
     day *= 1.0 - shadow * 0.62 * smoothstep(0.0, 0.35, ndl);
     day = mix(day, vec3(0.95, 0.97, 1.0), cloud * 0.78);
   }
@@ -162,10 +181,12 @@ void main() {
     col += vec3(0.45, 0.65, 0.85) * pow(max(dot(n, h), 0.0), 12.0) * spec * dayF * 0.25;
   }
   if (uAurora > 0.5) {
-    float pole = smoothstep(0.5, 0.86, abs(n.y));
-    float curtain = 0.5 + 0.5 * sin(n.x * 48.0 + uTime * 1.6) * sin(n.z * 36.0 - uTime);
-    col += vec3(0.15, 1.15, 0.45) * pole * (1.0 - dayF) * curtain * 1.6;
-    col += vec3(0.65, 0.2, 1.0) * smoothstep(0.78, 0.96, abs(n.y)) * (1.0 - dayF) * 0.55;
+    float lat = abs(vUv.y * 2.0 - 1.0);
+    float pole = smoothstep(0.58, 0.9, lat);
+    float curtain = 0.55 + 0.45 * sin(vUv.x * 26.0 + uTime * 1.1);
+    curtain *= 0.7 + 0.3 * sin(lat * 16.0 - uTime * 0.6);
+    col += vec3(0.1, 0.75, 0.32) * pole * (1.0 - dayF) * curtain * 0.85;
+    col += vec3(0.4, 0.12, 0.7) * smoothstep(0.82, 0.97, lat) * (1.0 - dayF) * 0.3;
   }
   if (uHasRing > 0.5) {
     vec3 rn = normalize(uRingNormal);
@@ -197,6 +218,17 @@ void main() {
     col *= 0.92;
   }
   if (uTwoTone > 0.5) col *= np.x > 0.05 ? 0.28 : 1.0;
+  if (uHasOcc > 0.5) {
+    vec3 toSun = l;
+    vec3 rel = uOcc - vWorld;
+    float tHit = dot(rel, toSun);
+    if (tHit > 0.0) {
+      float miss = dot(rel, rel) - tHit * tHit;
+      float rad2 = uOccR * uOccR;
+      float cover = 1.0 - smoothstep(rad2 * 0.85, rad2 * 1.08, miss);
+      col *= 1.0 - cover * dayF * 0.82;
+    }
+  }
   gl_FragColor = vec4(col, 1.0);
   ${fragTail}
 }
@@ -218,6 +250,22 @@ uniform float uRingInner;
 uniform float uRingOuter;
 uniform float uHasRing;
 uniform float uHex;
+uniform vec3 uMoon0;
+uniform vec3 uMoon1;
+uniform vec3 uMoon2;
+uniform float uMoonR0;
+uniform float uMoonR1;
+uniform float uMoonR2;
+uniform float uMoonN;
+
+float moonShadow(vec3 from, vec3 sunDir, vec3 moon, float rad) {
+  vec3 rel = moon - from;
+  float t = dot(rel, sunDir);
+  if (t <= 0.0) return 0.0;
+  float miss = dot(rel, rel) - t * t;
+  float rad2 = rad * rad;
+  return 1.0 - smoothstep(rad2 * 0.55, rad2 * 1.15, miss);
+}
 
 void main() {
   vec3 n = normalize(vNormal);
@@ -263,6 +311,12 @@ void main() {
   }
   float poleHaze = smoothstep(0.78, 0.98, abs(vUv.y * 2.0 - 1.0));
   col += vec3(0.45, 0.7, 1.0) * poleHaze * dayF * 0.18;
+  if (uMoonN > 0.5) {
+    float sh = moonShadow(vWorld, l, uMoon0, uMoonR0);
+    if (uMoonN > 1.5) sh = max(sh, moonShadow(vWorld, l, uMoon1, uMoonR1));
+    if (uMoonN > 2.5) sh = max(sh, moonShadow(vWorld, l, uMoon2, uMoonR2));
+    col *= 1.0 - sh * 0.78 * dayF;
+  }
   gl_FragColor = vec4(col, 1.0);
   ${fragTail}
 }

@@ -23,6 +23,25 @@ Merci de conserver la mention « Solar System Scope (CC BY 4.0) » si vous réut
 - <http://planetpixelemporium.com/>
 - L’auteur autorise l’usage y compris commercial ; un crédit est apprécié.
 
+## CC BY 4.0 — Solar System Scope, via Wikimedia Commons
+
+Cartes 8k réduites à 3840×1920 pour le chargement progressif (aperçu 512 px, puis la carte pleine) :
+
+- `earth_day.jpg`, `earth_night.jpg`, `earth_clouds.jpg`, `earth_normal.jpg` (normale tangentielle), `moon.jpg`, `mars.jpg`, `mercury.jpg`
+- Fichiers d’origine : « Solarsystemscope texture 8k … »
+- Auteur : Solar System Scope
+- Licence : Creative Commons Attribution 4.0
+- <https://commons.wikimedia.org/> et <https://www.solarsystemscope.com/textures/>
+
+## Domaine public — NASA / USGS / Galileo / Voyager / Cassini
+
+- `io.jpg` — mosaïque Galileo et Voyager, Wikimedia « Io from Galileo and Voyager missions », domaine public NASA.
+- `europa.jpg` — « Moon Europa color map », CC0.
+- `ganymede.jpg`, `callisto.jpg` — extraits des planches USGS « Controlled photomosaic map » (domaine public). Le graticule et les noms de la planche d’origine ont été conservés tels quels sur la carte source ; le rendu s’en sert comme albédo.
+- `enceladus.jpg` — « Enceladus Color Map », domaine public.
+- `titan.jpg` — mosaïque Cassini « Titan map April 2011 », domaine public.
+- `cmb.jpg` — « Cosmic Microwave Background (Planck-CMB-SMICA) », ESA/Planck, CC BY 4.0. Carte équirectangulaire des anisotropies SMICA, réduite à 3840×1920.
+
 ## Procédural
 
-Io, Europe, Ganymède, Callisto, Encelade, Titan, Triton, Charon, la Voie lactée, les galaxies, les nébuleuses, le champ d’étoiles de fond et les halos sont dessinés par shaders ou par canvas au démarrage. Aucune texture tierce n’est embarquée pour ces objets.
+Triton, Charon, la Voie lactée, les galaxies, les nébuleuses, le champ d’étoiles de fond, les halos et le micro-relief (bruit 3D sous trois rayons) sont dessinés par shaders ou par canvas. Le micro-détail se superpose aux cartes photographiques ; il ne les remplace pas.

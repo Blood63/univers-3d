@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { readPos } from '../astro/ephemeris'
 import { AU, LY } from '../astro/math'
 import { cam64, sim } from '../engine/state'
+import { followTexture } from '../engine/texcache'
 import { v3 } from '../astro/math'
 
 const GLY = 1e9 * LY
@@ -20,7 +21,7 @@ function hash3(ix: number, iy: number, iz: number): number {
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296
 }
 
-export function createCosmos(): Cosmos {
+export function createCosmos(cmbMap?: THREE.Texture): Cosmos {
   const root = new THREE.Group()
   root.name = 'cosmos'
   const q = sim.quality
@@ -108,7 +109,11 @@ export function createCosmos(): Cosmos {
   const cmb = new THREE.Mesh(
     new THREE.SphereGeometry(520, 48, 32),
     new THREE.ShaderMaterial({
-      uniforms: { uAlpha: { value: 0 } },
+      uniforms: {
+        uAlpha: { value: 0 },
+        uMap: { value: cmbMap ?? new THREE.Texture() },
+        uHasMap: { value: cmbMap ? 1 : 0 },
+      },
       side: THREE.BackSide,
       transparent: true,
       depthWrite: false,
@@ -127,6 +132,8 @@ export function createCosmos(): Cosmos {
         #include <logdepthbuf_pars_fragment>
         varying vec3 vDir;
         uniform float uAlpha;
+        uniform sampler2D uMap;
+        uniform float uHasMap;
         float hash(vec3 p) {
           return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453);
         }
@@ -158,6 +165,11 @@ export function createCosmos(): Cosmos {
           vec3 col = mix(cold, mid, smoothstep(0.35, 0.62, a));
           col = mix(col, hot, smoothstep(0.58, 0.86, b));
           col += vec3(0.55, 0.85, 0.25) * smoothstep(0.72, 0.9, a) * 0.35;
+          float lon = atan(d.z, d.x);
+          float lat = asin(clamp(d.y, -1.0, 1.0));
+          vec2 muv = vec2(lon / 6.2831853 + 0.5, 0.5 - lat / 3.1415926);
+          vec3 mapped = texture2D(uMap, muv).rgb;
+          col = mix(col, mapped, uHasMap);
           gl_FragColor = vec4(col, uAlpha);
           #include <logdepthbuf_fragment>
         }
@@ -166,6 +178,11 @@ export function createCosmos(): Cosmos {
   )
   cmb.frustumCulled = false
   root.add(cmb)
+  const cmbMat = cmb.material as THREE.ShaderMaterial
+  followTexture('cmb', (t) => {
+    cmbMat.uniforms.uMap.value = t
+    cmbMat.uniforms.uHasMap.value = 1
+  })
 
   const streamArr = new Float32Array(6)
   const streamGeo = new THREE.BufferGeometry()

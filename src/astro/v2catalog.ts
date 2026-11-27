@@ -164,7 +164,7 @@ const dwarfs: BodyDef[] = [
     name: 'Hauméa',
     category: 'naine',
     kind: 'dwarf',
-    radius: 780e3,
+    radius: 1161e3,
     mass: 4.0e21,
     color: '#f2f4f6',
     parent: 'soleil',
@@ -176,7 +176,7 @@ const dwarfs: BodyDef[] = [
     axialTilt: 126,
     rotationPeriod: 3.915 * 3600,
     spectral: '',
-    approach: 780e3 * 10,
+    approach: 1161e3 * 8,
     flags: ['ellipsoid', 'rings-thin'],
   }),
   body({
