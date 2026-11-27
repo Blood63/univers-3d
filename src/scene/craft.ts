@@ -74,41 +74,95 @@ function light(color: string, parent: THREE.Object3D, x: number, y: number, z: n
   parent.add(m)
 }
 
+function mliTex(): THREE.CanvasTexture {
+  const c = document.createElement('canvas')
+  c.width = 256
+  c.height = 256
+  const g = c.getContext('2d')!
+  g.fillStyle = '#c9842f'
+  g.fillRect(0, 0, 256, 256)
+  for (let i = 0; i < 80; i++) {
+    g.strokeStyle = i % 2 ? 'rgba(255,220,140,0.45)' : 'rgba(90,40,10,0.45)'
+    g.lineWidth = 1 + (i % 3)
+    g.beginPath()
+    const y = (i * 7) % 256
+    g.moveTo(0, y)
+    for (let x = 0; x <= 256; x += 16) g.lineTo(x, y + Math.sin(x * 0.08 + i) * 6)
+    g.stroke()
+  }
+  const t = new THREE.CanvasTexture(c)
+  t.colorSpace = THREE.SRGBColorSpace
+  t.wrapS = t.wrapT = THREE.RepeatWrapping
+  return t
+}
+
+const mli = new THREE.MeshStandardMaterial({
+  map: mliTex(),
+  color: '#e0a04a',
+  metalness: 0.82,
+  roughness: 0.38,
+  emissive: '#3a2208',
+  emissiveIntensity: 0.12,
+})
+
+const issSolar = new THREE.MeshStandardMaterial({
+  map: solarTex(),
+  color: '#d7a15a',
+  metalness: 0.55,
+  roughness: 0.32,
+  emissive: '#5a3010',
+  emissiveIntensity: 0.18,
+  side: THREE.DoubleSide,
+})
+
 export function buildISS(): THREE.Group {
   const g = new THREE.Group()
   g.name = 'iss'
-  box(108, 1.6, 1.7, alum, g)
-  for (const x of [-48, -36, -18, 18, 36, 48]) box(1.2, 2.4, 2.4, white, g, x, 0, 0)
-  box(70, 0.15, 3.2, radiator, g, 0, 0.2, 2.4)
-  box(70, 0.15, 3.2, radiator, g, 0, 0.2, -2.4)
-  const mods: [number, number, number, number, number][] = [
-    [2.1, 13, 0, 0, -18],
-    [2.05, 12, 0, 0, -8],
-    [2.15, 9, 0, 0, 4],
-    [2.2, 7.2, 0, 0, 12],
+  box(96, 0.35, 0.35, alum, g, 0, 0.7, 0)
+  box(96, 0.35, 0.35, alum, g, 0, -0.7, 0)
+  box(96, 0.35, 0.35, alum, g, 0, 0, 0.7)
+  box(96, 0.35, 0.35, alum, g, 0, 0, -0.7)
+  for (let x = -46; x <= 46; x += 4) {
+    box(0.18, 1.7, 1.7, alum, g, x, 0, 0)
+  }
+  box(62, 0.12, 2.6, radiator, g, 0, 0.15, 2.3)
+  box(62, 0.12, 2.6, radiator, g, 0, 0.15, -2.3)
+  const mods: [number, number, number, THREE.Material][] = [
+    [2.05, 14, -20, mli],
+    [2.0, 11, -8, white],
+    [2.2, 8.5, 5, white],
+    [2.15, 7, 13, mli],
   ]
-  for (const [r, len, x, y, z] of mods) cyl(r, len, white, g, x, y, z, 'z')
-  box(4.6, 4.2, 5.2, white, g, 0, 0, 0)
-  cyl(2.15, 6.8, white, g, 7.2, 0, 1, 'x')
-  cyl(2.2, 11, white, g, -8.2, 0, 2, 'x')
-  cyl(1.5, 1.6, white, g, 0, -2.4, 1.2, 'y')
-  const cup = new THREE.Mesh(new THREE.SphereGeometry(1.35, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), glass)
-  cup.position.set(0, -3.3, 1.2)
+  for (const [r, len, z, mat] of mods) cyl(r, len, mat, g, 0, 0, z, 'z')
+  box(5.2, 4.4, 5.4, white, g)
+  cyl(2.1, 7, white, g, 6.6, 0, 1.2, 'x')
+  cyl(2.15, 10, mli, g, -7.4, 0, 2, 'x')
+  cyl(1.35, 1.5, white, g, 0, -2.5, 1.4, 'y')
+  const cup = new THREE.Mesh(new THREE.SphereGeometry(1.45, 24, 16, 0, Math.PI * 2, 0, Math.PI / 2), glass)
+  cup.position.set(0, -3.4, 1.4)
   cup.rotation.x = Math.PI
   g.add(cup)
-  const wings = [-50, -38, 38, 50]
-  for (const x of wings) {
-    box(6, 0.08, 32, solarMat, g, x, 0, 20)
-    box(6, 0.08, 32, solarMat, g, x, 0, -20)
+  for (let i = 0; i < 7; i++) {
+    const pane = new THREE.Mesh(new THREE.CircleGeometry(0.22, 8), glass)
+    pane.position.set((i % 3) * 0.45 - 0.45, -3.55, 1.4 + Math.floor(i / 3) * 0.4)
+    pane.rotation.x = Math.PI / 2
+    g.add(pane)
+  }
+  for (const x of [-46, -34, 34, 46]) {
+    box(7.5, 0.06, 34, issSolar, g, x, 0, 22)
+    box(7.5, 0.06, 34, issSolar, g, x, 0, -22)
+    box(0.4, 0.4, 8, alum, g, x, 0, 8)
+    box(0.4, 0.4, 8, alum, g, x, 0, -8)
   }
   const arm = new THREE.Group()
-  cyl(0.18, 8, alum, arm, 0, 2.2, 6, 'z')
-  cyl(0.16, 6, kapton, arm, 0, 2.2, 12, 'y')
-  cyl(0.14, 5, alum, arm, 2.2, 5, 12, 'x')
+  cyl(0.16, 7.5, alum, arm, 2, 1.6, 8, 'z')
+  cyl(0.14, 5.5, kapton, arm, 2, 1.6, 14, 'y')
+  cyl(0.12, 4.2, alum, arm, 4.2, 4.2, 14, 'x')
+  box(0.5, 0.35, 0.8, dark, arm, 6.2, 4.2, 14)
   g.add(arm)
-  light('#ff4040', g, 54, 1.2, 0)
-  light('#9dff6a', g, -54, 1.2, 0)
-  light('#ffffff', g, 0, 2.2, 16)
+  light('#ff4040', g, 49, 1.1, 0)
+  light('#9dff6a', g, -49, 1.1, 0)
+  light('#ffffff', g, 0, 2.4, 18)
   return g
 }
 

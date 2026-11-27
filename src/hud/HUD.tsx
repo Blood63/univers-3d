@@ -119,7 +119,7 @@ export function HUD({ nonce }: { nonce: number }) {
             </div>
           </div>
 
-          <aside className="pointer-events-auto absolute left-4 top-36 w-52">
+          <aside className="pointer-events-auto absolute left-4 top-36 hidden w-52 md:block">
             <div className="glass rounded-2xl p-3">
               <div className="mb-2 text-[10px] tracking-[0.18em] text-white/45">CALQUES</div>
               {(

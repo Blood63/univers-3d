@@ -572,7 +572,20 @@ export function boot(view: string): void {
   initEphemeris()
   writeWorld(sim.jd)
   writeDisplay(false)
-  focusBody(view === 'earth' ? 'terre' : view === 'saturn' ? 'saturne' : view === 'jwst' ? 'jwst' : view === 'm31' ? 'm31' : view === 'bh' ? 'sgr-a' : 'iss', true)
+  focusBody(
+    view === 'sun' ? 'soleil' : view === 'earth' ? 'terre' : view === 'saturn' ? 'saturne' : view === 'jwst' ? 'jwst' : view === 'm31' ? 'm31' : view === 'bh' ? 'sgr-a' : 'iss',
+    true,
+  )
+  if (view === 'sun') {
+    readPos('soleil', pB, true)
+    const r = displayRadius('soleil')
+    putCam(pB.x + r * 1.2, pB.y + r * 0.45, pB.z + r * 3.4)
+    lookToward({ x: cam64[0], y: cam64[1], z: cam64[2] }, pB)
+    sim.mode = 'orbit'
+    sim.orbitDist = r * 3.6
+    sim.target = 'soleil'
+    sim.selected = 'soleil'
+  }
   if (view === 'earth') {
     readPos('terre', pB, true)
     const r = displayRadius('terre')

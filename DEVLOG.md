@@ -220,4 +220,40 @@ Corrections encore faites parce qu’elles changeaient l’image :
 - Galaxies face caméra : plus de quartier d’ellipse dû au `float32`.
 - Anneau du trou noir relu à ~80 rayons de Schwarzschild, sans `NaN`.
 
-Le dernier passage, après la coquille numérique, a été revu dans le navigateur : Andromède montre ses bras spiraux, et Sagittarius A* un anneau orange autour d’un horizon noir. Ces deux vues, avec l’ISS, la Terre, Saturne, JWST et le HUD, sont les captures de référence.
+Le dernier passage, après la coquille numérique, a été revu dans le navigateur : Andromède montre ses bras spiraux, et Sagittarius A* un anneau orange autour d’un horizon noir.
+
+## Cycles de polish supplémentaires
+
+Les captures « avant » sont celles de la v1. Les captures « après » sont les vues régénérées sur la même branche.
+
+### Cycle 6 — Terre
+
+Avant : limbe bleu correct, aurore en bande, peu de reflet d’océan.
+
+Après : reflet spéculaire serré sur les océans (carte speculaire), ombre des nuages décalée vers le Soleil, lumières de villes poussées au-dessus de 1 pour le bloom, aurores en rideaux animés vert et violet. L’atmosphère ajoute un terme de Mie orangé quand le rayon vise le Soleil.
+
+### Cycle 7 — Soleil
+
+Granulation à deux octaves, ombre et pénombre des taches, couronne additive en coquille (2,6 rayons) dont l’intensité a été baissée pour ne plus laver le ciel. Les orbites planétaires se masquent quand la caméra est à moins de 12 rayons solaires, pour ne plus barrer le disque.
+
+### Cycle 8 — Saturne
+
+Profil d’anneau resserré : Cassini pleine, division d’Encke, fines bandes radiales, diffusion vers l’avant quand on regarde à contre-jour, ombre du globe conservée. La Grande Tache Rouge gagne un col clair.
+
+### Cycle 9 — Sondes
+
+L’ISS n’est plus une poutre pleine : longerons, entretoises tous les 4 m, radiateurs, modules en MLI or (texture de feuille froissée), panneaux cuivrés, hublots de Cupola, bras segmenté. Io et Encelade ont des panaches plus hauts. Les nébuleuses passent de 14 à 26 sprites.
+
+### Cycle 10 — Échelles et coût
+
+Les meshes planétaires et leurs atmosphères se coupent sous un seuil angulaire (environ 1,6 px pour le globe, 7 px pour l’atmosphère) afin d’éviter le tremblement d’un sphère de 6 000 km perdue dans un `float32` galactique. Les ceintures et les coquilles Starlink/GPS/GEO ne mettent à jour leurs matrices que lorsque la caméra est dans le système. Les trajectoires de sondes réutilisent leur buffer au lieu d’en allouer un par frame.
+
+### Cycle 11 — HUD et mobile
+
+Le calque de gauche est masqué sous 768 px. La qualité Mobile reste sélectionnée automatiquement sur pointeur grossier. Le compteur de draw calls ignore les lectures vides du composer.
+
+### Revue face au cahier des charges
+
+Présent et revu : origine flottante, depth logarithmique, worker (ceintures, trajectoires, éphémérides), six régimes d’échelle, post-traitement HDR, catalogue demandé, engins humains, temps, orrery, comparateur, règle, vol 6 DoF, warp, trois modes caméra plus la poursuite, quatre visites, photo, audio, HUD français, Ctrl+K, calques, presets.
+
+Encore simplifié, et dit comme tel : la trace au sol de l’ISS n’est pas une courbe peinte sur le globe ; la lentille gravitationnelle ne déforme pas le champ d’étoiles derrière le trou noir (le disque Doppler et l’horizon le sont) ; le nombre de draw calls affiché reste peu fiable à cause du composer. Ce sont les trois écarts que je ne présente pas comme fermés.

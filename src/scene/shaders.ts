@@ -57,20 +57,23 @@ void main() {
   float mu = pow(max(dot(n, viewDir), 0.0), 0.55);
   vec2 uv = vUv * vec2(2.2, 1.1);
   float t = uTime * 0.035;
-  float g = fbm(uv * 7.0 + vec2(t, -t * 0.6));
-  float g2 = fbm(uv * 18.0 - vec2(t * 1.4, t));
-  float gran = smoothstep(0.25, 0.85, g * 0.65 + g2 * 0.5);
+  float g = fbm(uv * 9.0 + vec2(t, -t * 0.6));
+  float g2 = fbm(uv * 26.0 - vec2(t * 1.7, t * 0.4));
+  float gran = smoothstep(0.22, 0.82, g * 0.55 + g2 * 0.6);
   vec3 base = texture2D(uMap, vUv).rgb * uTint;
   vec3 hot = vec3(1.0, 0.96, 0.82);
   vec3 mid = vec3(1.0, 0.62, 0.18);
   vec3 limb = vec3(0.85, 0.22, 0.05);
   vec3 col = mix(limb, mix(mid, hot, gran), mu);
   col *= 0.55 + 0.7 * base;
-  float spot = smoothstep(0.62, 0.78, fbm(uv * 3.0 + 4.0));
-  col *= mix(1.0, 0.45, spot * 0.85);
+  float spotN = fbm(uv * 2.4 + 3.0);
+  float umbra = smoothstep(0.72, 0.8, spotN);
+  float penumbra = smoothstep(0.64, 0.74, spotN) * (1.0 - umbra);
+  col *= mix(1.0, 0.35, umbra);
+  col *= mix(1.0, 0.7, penumbra);
   float promin = pow(1.0 - mu, 2.2) * fbm(vec2(atan(n.z, n.x) * 2.0 + t, n.y * 6.0));
   col += vec3(1.0, 0.35, 0.08) * promin * 1.6;
-  col *= 3.4;
+  col *= 2.15;
   gl_FragColor = vec4(col, 1.0);
   ${fragTail}
 }
@@ -113,27 +116,32 @@ void main() {
   if (uHasCloud > 0.5) {
     vec2 cuv = vec2(fract(vUv.x + uCloudOff), vUv.y);
     cloud = texture2D(uCloud, cuv).a;
-    day = mix(day, vec3(1.0), cloud * 0.72);
-    day *= 1.0 - cloud * 0.18;
+    float shadow = texture2D(uCloud, vec2(fract(cuv.x + 0.012 * ndl), cuv.y)).a;
+    day *= 1.0 - shadow * 0.62 * smoothstep(0.0, 0.35, ndl);
+    day = mix(day, vec3(0.95, 0.97, 1.0), cloud * 0.78);
   }
   vec3 col = day;
   if (uHasNight > 0.5) {
-    col = mix(nightTex * 1.55, day, dayF);
+    float city = dot(nightTex, vec3(0.3, 0.5, 0.2));
+    vec3 lights = nightTex * (2.2 + city * 6.0);
+    col = mix(lights, day, dayF);
   } else {
-    col *= 0.05 + 0.95 * dayF;
-    col += uTint * 0.03;
+    col *= 0.045 + 0.955 * dayF;
+    col += uTint * 0.025;
   }
   vec3 viewDir = normalize(-vWorld);
   if (uHasSpec > 0.5) {
     float spec = texture2D(uSpec, vUv).r;
     vec3 h = normalize(l + viewDir);
-    col += vec3(0.85, 0.92, 1.0) * pow(max(dot(n, h), 0.0), 60.0) * spec * dayF * 1.15;
+    float glint = pow(max(dot(n, h), 0.0), 220.0);
+    col += vec3(1.15, 1.05, 0.95) * glint * spec * dayF * 3.2;
+    col += vec3(0.45, 0.65, 0.85) * pow(max(dot(n, h), 0.0), 12.0) * spec * dayF * 0.25;
   }
   if (uAurora > 0.5) {
-    float pole = smoothstep(0.62, 0.9, abs(n.y));
-    float flick = 0.55 + 0.45 * sin(uTime * 1.7 + n.x * 12.0 + n.z * 9.0);
-    col += vec3(0.2, 1.0, 0.55) * pole * (1.0 - dayF) * flick * 0.85;
-    col += vec3(0.55, 0.2, 0.85) * smoothstep(0.78, 0.95, abs(n.y)) * (1.0 - dayF) * 0.35;
+    float pole = smoothstep(0.5, 0.86, abs(n.y));
+    float curtain = 0.5 + 0.5 * sin(n.x * 48.0 + uTime * 1.6) * sin(n.z * 36.0 - uTime);
+    col += vec3(0.15, 1.15, 0.45) * pole * (1.0 - dayF) * curtain * 1.6;
+    col += vec3(0.65, 0.2, 1.0) * smoothstep(0.78, 0.96, abs(n.y)) * (1.0 - dayF) * 0.55;
   }
   if (uHasRing > 0.5) {
     vec3 rn = normalize(uRingNormal);
@@ -188,9 +196,13 @@ void main() {
   float bands = 0.85 + 0.15 * sin(lat * 46.0 + sin(uv.x * 12.0 + uTime * 0.2));
   vec3 col = tex * uTint * bands;
   if (uGRS > 0.5) {
-    vec2 d = (uv - vec2(0.35, 0.62)) * vec2(1.0, 2.2);
-    float grs = smoothstep(0.09, 0.02, length(d));
-    col = mix(col, vec3(0.72, 0.28, 0.16), grs);
+    vec2 d = (uv - vec2(0.36, 0.63));
+    d.y *= 1.85;
+    float blob = length(d);
+    float grs = smoothstep(0.075, 0.02, blob);
+    float collar = smoothstep(0.11, 0.075, blob) * (1.0 - grs);
+    col = mix(col, vec3(0.78, 0.24, 0.12), grs);
+    col = mix(col, vec3(0.95, 0.88, 0.74), collar * 0.85);
   }
   col *= 0.08 + 0.92 * dayF;
   if (uHasRing > 0.5) {
@@ -282,9 +294,11 @@ void main() {
     acc += dens * trans * ds / uRadius;
   }
   float mu = dot(rd, sunDir);
-  float phase = 0.6 + 0.4 * mu * mu;
-  vec3 col = uColor * acc * phase * uStrength;
-  float alpha = clamp(max(col.r, max(col.g, col.b)) * 1.35, 0.0, 0.92);
+  float phaseR = 0.75 * (1.0 + mu * mu);
+  float phaseM = pow(max(mu, 0.0), 6.0);
+  vec3 col = uColor * acc * phaseR * uStrength;
+  col += vec3(1.0, 0.55, 0.22) * acc * phaseM * uStrength * 0.55;
+  float alpha = clamp(max(col.r, max(col.g, col.b)) * 1.15, 0.0, 0.9);
   if (alpha < 0.015) discard;
   gl_FragColor = vec4(col, alpha);
   ${fragTail}
@@ -321,25 +335,27 @@ void main() {
   float r = length(vLocal.xy);
   float u = clamp((r - uInner) / max(uOuter - uInner, 1.0), 0.0, 1.0);
   vec4 tex = texture2D(uRing, vec2(u, 0.5));
-  float cass = smoothstep(0.018, 0.004, abs(u - 0.68));
-  float encke = smoothstep(0.01, 0.0, abs(u - 0.78));
-  float alpha = tex.a;
-  alpha *= 1.0 - cass * 0.92;
-  alpha *= 1.0 - encke * 0.75;
-  alpha *= smoothstep(0.0, 0.03, u) * (1.0 - smoothstep(0.96, 1.0, u));
-  if (alpha < 0.04) discard;
-  vec3 col = mix(vec3(0.85, 0.8, 0.72), uTint, 0.35);
-  col *= 0.55 + 0.6 * tex.r;
-  col *= 0.75 + 0.25 * sin(u * 90.0);
+  float fine = 0.72 + 0.28 * sin(u * 160.0) * sin(u * 47.0 + 1.7);
+  float cass = smoothstep(0.02, 0.0, abs(u - 0.68));
+  float encke = smoothstep(0.008, 0.0, abs(u - 0.81));
+  float alpha = max(tex.a, 0.35) * fine;
+  alpha *= 1.0 - cass;
+  alpha *= 1.0 - encke * 0.85;
+  alpha *= smoothstep(0.0, 0.02, u) * (1.0 - smoothstep(0.97, 1.0, u));
+  if (alpha < 0.035) discard;
+  vec3 ice = mix(vec3(0.92, 0.86, 0.74), vec3(0.72, 0.78, 0.84), smoothstep(0.2, 0.85, u));
+  vec3 col = mix(ice, uTint, 0.25) * (0.65 + 0.5 * tex.r);
   vec3 toSun = normalize(uSun - vWorld);
   vec3 oc = vWorld - uPlanet;
   float b = dot(oc, toSun);
   float c = dot(oc, oc) - uPlanetR * uPlanetR;
   float disc = b * b - c;
-  if (disc > 0.0 && b < 0.0) col *= 0.18;
+  if (disc > 0.0 && b < 0.0) col *= 0.12;
+  float back = pow(max(dot(normalize(-vWorld), toSun), 0.0), 1.6);
+  col += vec3(1.0, 0.93, 0.8) * back * alpha * 0.55;
   float mu = abs(dot(normalize(vWorld), vec3(0.0, 1.0, 0.0)));
-  alpha *= mix(0.35, 1.0, mu);
-  gl_FragColor = vec4(col * 1.15, alpha);
+  alpha *= mix(0.28, 1.0, mu);
+  gl_FragColor = vec4(col, clamp(alpha, 0.0, 0.95));
   ${fragTail}
 }
 `
@@ -523,6 +539,38 @@ void main() {
   col *= mix(1.0, 0.35, smoothstep(0.4, 0.85, dust) * band);
   col *= uFade;
   gl_FragColor = vec4(col, 1.0);
+}
+`
+
+export const coronaVertex = /* glsl */ `
+#include <common>
+#include <logdepthbuf_pars_vertex>
+varying vec3 vNormal;
+varying vec3 vWorld;
+void main() {
+  vNormal = normalize(mat3(modelMatrix) * normal);
+  vec4 world = modelMatrix * vec4(position, 1.0);
+  vWorld = world.xyz;
+  gl_Position = projectionMatrix * viewMatrix * world;
+  #include <logdepthbuf_vertex>
+}
+`
+
+export const coronaFragment = /* glsl */ `
+${fragDepth}
+varying vec3 vNormal;
+varying vec3 vWorld;
+uniform float uTime;
+void main() {
+  vec3 n = normalize(vNormal);
+  vec3 viewDir = normalize(-vWorld);
+  float fres = pow(1.0 - max(dot(n, viewDir), 0.0), 2.4);
+  float ray = 0.65 + 0.35 * sin(atan(n.z, n.x) * 9.0 + n.y * 14.0 + uTime * 0.4);
+  vec3 col = mix(vec3(1.0, 0.72, 0.28), vec3(0.95, 0.95, 1.0), fres);
+  float alpha = fres * ray * 0.55;
+  if (alpha < 0.02) discard;
+  gl_FragColor = vec4(col * 1.15, alpha);
+  ${fragTail}
 }
 `
 

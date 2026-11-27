@@ -7,6 +7,8 @@ import { CRAFT_BUILDERS, buildStarlinkSat } from './craft'
 import {
   atmoFragment,
   atmoVertex,
+  coronaFragment,
+  coronaVertex,
   bhFragment,
   bhVertex,
   galaxyFragment,
@@ -314,6 +316,24 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
       ;(g.material as THREE.SpriteMaterial).color.set(b.color)
       group.add(g)
       node.glow = g
+      if (b.id === 'soleil') {
+        const corona = new THREE.Mesh(
+          sphere,
+          new THREE.ShaderMaterial({
+            uniforms: { uTime: { value: 0 } },
+            vertexShader: coronaVertex,
+            fragmentShader: coronaFragment,
+            transparent: true,
+            depthWrite: false,
+            side: THREE.BackSide,
+            blending: THREE.AdditiveBlending,
+          }),
+        )
+        corona.scale.setScalar(2.6)
+        group.add(corona)
+        node.atmo = corona
+        node.atmoMat = corona.material as THREE.ShaderMaterial
+      }
     } else if (b.kind === 'planet' || b.kind === 'moon' || b.kind === 'dwarf') {
       const gas = b.flags?.includes('bands')
       const mat = new THREE.ShaderMaterial({
@@ -419,7 +439,8 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
             depthWrite: false,
           }),
         )
-        plume.position.y = b.flags.includes('geysers') ? -1.15 : 1.15
+        plume.position.y = b.flags.includes('geysers') ? -1.2 : 1.2
+        plume.scale.set(1.6, 2.4, 1.6)
         if (b.flags.includes('geysers')) plume.rotation.x = Math.PI
         group.add(plume)
       }
@@ -470,7 +491,7 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
       group.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(bx, by, axis))
     } else if (b.kind === 'nebula') {
       const color = new THREE.Color(b.color)
-      for (let i = 0; i < 14; i++) {
+      for (let i = 0; i < 26; i++) {
         const s = new THREE.Sprite(
           new THREE.SpriteMaterial({
             map: soft,
@@ -748,11 +769,13 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
           node.mat.uniforms.uRingOuter.value = r * 2.32
         }
       }
-      if (node.atmo && node.atmoMat) {
-        node.atmo.scale.setScalar((node.atmoMat.uniforms.uOuter.value as number))
+      if (node.atmo && node.atmoMat?.uniforms.uRadius) {
+        node.atmo.scale.setScalar(node.atmoMat.uniforms.uOuter.value as number)
         node.atmoMat.uniforms.uCenter.value.copy(node.group.position)
         node.atmoMat.uniforms.uRadius.value = r
         node.atmoMat.uniforms.uSun.value.copy(sunRender)
+      } else if (node.atmoMat?.uniforms.uTime && !node.atmoMat.uniforms.uRadius) {
+        node.atmoMat.uniforms.uTime.value = time
       }
       if (node.ringMat) {
         node.ringMat.uniforms.uSun.value.copy(sunRender)
@@ -761,7 +784,16 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
       }
       if (node.glow && b.kind === 'star') {
         const minS = Math.max(r * 5, dist * 0.02)
-        node.glow.scale.setScalar(minS / Math.max(r, 1))
+        node.glow.scale.setScalar(minS / Math.max(node.group.scale.x, 1))
+      }
+      if (node.mesh && (b.kind === 'planet' || b.kind === 'moon' || b.kind === 'dwarf' || b.kind === 'star')) {
+        const ang = 2 * Math.atan(r / Math.max(dist, 1))
+        const px = (ang / ((sim.fov * Math.PI) / 180)) * Math.max(h, 1)
+        const showMesh = px > 1.6
+        node.mesh.visible = showMesh
+        if (node.rings) node.rings.visible = px > 5
+        if (node.atmo && node.atmoMat?.uniforms.uRadius) node.atmo.visible = px > 7
+        if (node.clouds) node.clouds.visible = px > 6
       }
       if (b.kind === 'galaxy') {
         node.group.visible = id === 'mw' ? !inside : true
@@ -793,7 +825,7 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
           if (!tail) continue
           tail.position.copy(away).multiplyScalar(stretch * (tail.name === 'ion' ? 4.2 : 2.6))
           tail.lookAt(node.group.position.clone().add(away))
-          tail.scale.setScalar(tail.name === 'ion' ? stretch : stretch * 0.8)
+          tail.scale.set(tail.name === 'ion' ? 0.7 : 1.15, tail.name === 'ion' ? stretch * 1.4 : stretch, tail.name === 'ion' ? 0.7 : 1.15)
         }
         if (node.glow) node.glow.scale.setScalar(2.4 + stretch)
       }
@@ -825,8 +857,13 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
     }
     constLines.visible = sim.layers.constellations
 
-    updateBelts(asteroids, beltAsteroids, 2.7 * AU)
-    updateBelts(kuiper, beltKuiper, 40 * AU)
+    const nearSystem = sim.band === 'systeme' || sim.band === 'planetaire' || sim.band === 'sonde' || sim.scaleMode === 'orrery'
+    asteroids.visible = nearSystem
+    kuiper.visible = nearSystem
+    if (nearSystem) {
+      updateBelts(asteroids, beltAsteroids, 2.7 * AU)
+      updateBelts(kuiper, beltKuiper, 40 * AU)
+    }
     beltRing.position.set(-cam64[0], -cam64[1], -cam64[2])
     kuiperRing.position.copy(beltRing.position)
     beltRing.visible = sim.band !== 'sonde' && sim.band !== 'intergalactique'
@@ -837,15 +874,20 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
     const ey = tmp.y - cam64[1]
     const ez = tmp.z - cam64[2]
     const years = (sim.jd - J2000) / 365.25
-    scatterShell(shellDummy, slMesh, ex, ey, ez, 6.371e6 + 550e3, 0.92, years * 5200, slCount)
-    scatterShell(shellDummy, gpsMesh, ex, ey, ez, 6.371e6 + 20180e3, 0.96, years * 700, 24)
-    scatterShell(shellDummy, geoMesh, ex, ey, ez, 6.371e6 + 35786e3, 0.02, years * 360, 36)
     const showShells = Math.hypot(ex, ey, ez) < 80000e3 || sim.selected === 'starlink' || sim.selected === 'gps' || sim.selected === 'geo'
     slMesh.visible = showShells
     gpsMesh.visible = showShells || sim.layers.orbits
     geoMesh.visible = showShells || sim.layers.orbits
+    if (showShells) {
+      scatterShell(shellDummy, slMesh, ex, ey, ez, 6.371e6 + 550e3, 0.92, years * 5200, slCount)
+      scatterShell(shellDummy, gpsMesh, ex, ey, ez, 6.371e6 + 20180e3, 0.96, years * 700, 24)
+      scatterShell(shellDummy, geoMesh, ex, ey, ez, 6.371e6 + 35786e3, 0.02, years * 360, 36)
+    }
 
-    const showOrbits = sim.layers.orbits && (sim.band === 'systeme' || sim.band === 'planetaire' || sim.scaleMode === 'orrery')
+    const showOrbits =
+      sim.layers.orbits &&
+      (sim.band === 'systeme' || sim.band === 'planetaire' || sim.scaleMode === 'orrery') &&
+      !(sim.nearestId === 'soleil' && sim.nearestGap < displayRadius('soleil') * 12)
     for (const [id, line] of orbits) {
       line.visible = showOrbits
       if (!showOrbits) continue
@@ -873,7 +915,12 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
       const data = probePaths[id]
       line.visible = sim.layers.trajectories && !!data
       if (!data) continue
-      const arr = new Float32Array(data.length)
+      let attr = line.geometry.attributes.position as THREE.BufferAttribute | undefined
+      if (!attr || attr.array.length !== data.length) {
+        line.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(data.length), 3))
+        attr = line.geometry.attributes.position as THREE.BufferAttribute
+      }
+      const arr = attr.array as Float32Array
       for (let i = 0; i < data.length; i += 3) {
         let x = data[i]
         let y = data[i + 1]
@@ -890,7 +937,7 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
         arr[i + 1] = y - cam64[1]
         arr[i + 2] = z - cam64[2]
       }
-      line.geometry.setAttribute('position', new THREE.BufferAttribute(arr, 3))
+      attr.needsUpdate = true
     }
 
     hz.position.set(-cam64[0], -cam64[1], -cam64[2])
