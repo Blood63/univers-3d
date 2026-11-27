@@ -34,7 +34,7 @@ function Scene({ textures }: { textures: Record<string, THREE.Texture> }) {
     handle.current = built.handle
     const params = new URLSearchParams(location.search)
     try {
-      boot(params.get('vue') || 'iss')
+      boot(params.get('vue') || 'system')
     } catch (err) {
       const message = err instanceof Error ? err.stack ?? err.message : String(err)
       document.documentElement.dataset.booterr = message.slice(0, 500)

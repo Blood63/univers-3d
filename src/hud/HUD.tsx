@@ -4,7 +4,7 @@ import { AU, C, LY, YEAR, formatDateUTC, formatDist, formatDuration, formatSpeed
 import { readPos } from '../astro/ephemeris'
 import { capturePng } from '../App'
 import { applyMute, resumeAudio } from '../engine/audio'
-import { beginWarp, refreshBelts, setMode, startTour, stopTour, toggleScale } from '../engine/runtime'
+import { beginWarp, refreshBelts, setNav, startTour, stopTour, toggleFollow, toggleScale, viewSolarSystem } from '../engine/runtime'
 import { QUALITY_PRESET, labelFrame, sim, type Quality } from '../engine/state'
 import { v3 } from '../astro/math'
 import { Comparator } from './Comparator'
@@ -179,25 +179,27 @@ export function HUD({ nonce }: { nonce: number }) {
               </dl>
               <div className="mt-3 flex flex-wrap gap-2">
                 <button className="hud-btn" onClick={() => beginWarp(body.id)}>
-                  Warp
+                  Cadrer
                 </button>
-                <button className="hud-btn" data-on={sim.mode === 'orbit'} onClick={() => setMode('orbit')}>
-                  Orbite
-                </button>
-                <button className="hud-btn" data-on={sim.mode === 'surface'} onClick={() => setMode('surface')}>
-                  Surface
-                </button>
-                <button className="hud-btn" data-on={sim.mode === 'chase'} onClick={() => setMode('chase')}>
-                  Poursuite
-                </button>
-                <button className="hud-btn" data-on={sim.mode === 'freefly'} onClick={() => setMode('freefly')}>
-                  Vol libre
+                <button className="hud-btn" data-on={sim.follow} onClick={() => toggleFollow()}>
+                  Suivre l'astre
                 </button>
               </div>
             </div>
           </aside>
 
-          <footer className="pointer-events-auto absolute inset-x-0 bottom-0 flex flex-col gap-2 p-4">
+          <footer className="pointer-events-auto absolute inset-x-0 bottom-0 z-20 flex flex-col gap-2 p-4">
+            <div className="flex flex-wrap justify-center gap-2">
+              <button className="hud-btn" data-on={sim.mode === 'aerial'} onClick={() => setNav('aerial')}>
+                Vue aérienne
+              </button>
+              <button className="hud-btn" data-on={sim.mode === 'freefly'} onClick={() => setNav('freefly')}>
+                Vol libre
+              </button>
+              <button className="hud-btn" onClick={() => viewSolarSystem()}>
+                Vue Système Solaire
+              </button>
+            </div>
             {sim.tourId && (
               <div className="glass mx-auto max-w-xl rounded-2xl px-4 py-3 text-center">
                 <div className="text-[10px] tracking-[0.18em] text-[#f0c27a]">
@@ -418,11 +420,12 @@ export function HUD({ nonce }: { nonce: number }) {
           <div className="glass max-w-lg rounded-2xl p-5" onClick={(e) => e.stopPropagation()}>
             <div className="text-lg">Commandes</div>
             <ul className="mono mt-3 space-y-1 text-[12px] leading-relaxed text-white/80">
-              <li>ZQSD ou WASD — translation · A/E ou Q/E — roulis</li>
-              <li>Espace / C — monter, descendre · Maj — boost</li>
-              <li>Souris — regard · molette — vitesse ou distance d’orbite</li>
-              <li>Clic sur un astre — warp · Maj+clic — règle cosmique</li>
-              <li>Ctrl+K recherche · H photo · M silence · O orrery · P pause</li>
+              <li>Vue aérienne — clic gauche : déplacer · clic droit : incliner · molette : zoom</li>
+              <li>ZQSD ou flèches — panoramique, plus rapide quand on est haut</li>
+              <li>Vol libre — ZQSD translation, souris verrouillée, A/E ou Q/E roulis</li>
+              <li>Clic sur un astre — vol pour le cadrer, sans verrouillage</li>
+              <li>Suivre l'astre est optionnel et s'arrête dès qu'on déplace la vue</li>
+              <li>R — vue Système Solaire · Ctrl+K recherche · H photo · O orrery · P pause</li>
               <li>Disposition clavier : {sim.layout.toUpperCase()} · proche de {BODY_BY_ID[sim.nearestId]?.name}</li>
             </ul>
             <button

@@ -272,3 +272,30 @@ La grille galactique (plan orienté vers le pôle galactique, centrée sur la ca
 - 08 HUD : verre, Ctrl+K, télémétrie, calques (orbites, trajectoires, trace, étiquettes, constellations, grilles écliptique et galactique, zone habitable, héliosphère, débris), presets, FPS et draw calls lus après le composer.
 
 Vérification : `tsc --noEmit` propre, build Vite propre, Chrome headless sans erreur de console ni de shader sur les vues ISS, Terre et Sgr A*.
+
+## Navigation — vue aérienne libre
+
+La caméra ne se verrouille plus sur un astre. Le mode par défaut au lancement est une vue carte, du même genre qu’un globe ou une carte de stratégie : un pivot, une distance, un cap et une inclinaison.
+
+Validé
+
+- Panoramique au clic gauche ou en ZQSD / flèches, au-dessus du plan, sans cible imposée. La vitesse latérale suit la distance (plus haut, plus vite).
+- Inclinaison et orbite autour du point regardé au clic droit, et à deux doigts sur mobile. L’inclinaison va du ras de l’écliptique jusqu’au zénith.
+- Zoom continu, logarithmique, à la molette ou au pincement. Plancher numérique 0,25 m pour éviter les NaN, aucun plafond de distance.
+- Amortissement exponentiel sur le pivot, le log de la distance, le cap et l’inclinaison, avec un pas de temps réel (plafonné à 0,1 s).
+- Un clic ou Ctrl+K cadre l’astre par un vol, puis rend la main. « Suivre l’astre » est un bouton à part et s’éteint dès qu’on déplace la vue (glisser ou ZQSD), y compris pendant la frappe, avant la frame suivante.
+- R, ou le bouton « Vue Système Solaire », ramène instantanément la carte à 42 UA autour du Soleil.
+- Le sélecteur du bas bascule en un clic entre Vue aérienne et Vol libre. Les visites guidées suivent encore l’astre le temps du commentaire. Origine flottante, positions 64 bits et depth logarithmique inchangés. Ctrl+K et H gardent leur rôle (recherche, photo).
+
+Défauts
+
+- Le clic droit ouvrait le menu du navigateur et les déplacements suivants n’arrivaient plus à la page : l’inclinaison ne bougeait pas, et une touche de panoramique juste après ne coupait pas le suivi.
+- Un `dt` plafonné à 50 ms mettait le warp au ralenti dès que le rendu passait sous 20 images/s.
+
+Améliorations appliquées
+
+1. Le bouton droit est mémorisé dès le `mousedown` sur la fenêtre, et le menu contextuel est bloqué, pour que l’inclinaison parte même si l’événement ne tombe pas sur le canvas.
+2. Le suivi est coupé dans le gestionnaire clavier des touches de panoramique, pas seulement dans la boucle de vue.
+3. Le pas de temps utile est plafonné à 100 ms. Le sélecteur de mode est une rangée du pied de page, au-dessus des curseurs de qualité, pour rester cliquable.
+
+Vérification headless (SwiftShader, 0 `pageerror`, 0 erreur console) : démarrage aérien à 42 UA, inclinaison 1,08 puis 1,42 après un glisser droit, panoramique clic gauche de 8,7 UA, zoom arrière 42 → 83 UA, cadrage Terre à ~19 200 km sans suivi, suivi allumé puis éteint par la touche D, R de retour à 42 UA. `tsc --noEmit` et `vite build` propres.
