@@ -16,6 +16,8 @@ export interface Layers {
   heliosphere: boolean
   debris: boolean
   groundTrack: boolean
+  oort: boolean
+  cosmicWeb: boolean
 }
 
 export const QUALITY_PRESET: Record<
@@ -62,6 +64,14 @@ export const sim = {
   nearestId: 'iss',
   nearestGap: 20,
   band: 'sonde' as ScaleBand,
+  echelle: 3,
+  altitude: 6.28e12,
+  frameMs: 16,
+  tris: 0,
+  texCount: 0,
+  activeBodies: 0,
+  profileOpen: false,
+  dprBias: 1,
   speed: 0,
   tourId: null as string | null,
   tourStep: 0,
@@ -82,6 +92,8 @@ export const sim = {
     heliosphere: false,
     debris: false,
     groundTrack: true,
+    oort: true,
+    cosmicWeb: true,
   } as Layers,
   hover: null as string | null,
   ready: false,

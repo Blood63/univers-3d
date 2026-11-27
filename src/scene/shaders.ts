@@ -104,13 +104,37 @@ uniform vec3 uRingNormal;
 uniform float uRingInner;
 uniform float uRingOuter;
 uniform float uHasRing;
+uniform float uClose;
+uniform float uRegolith;
+uniform float uFlow;
+uniform float uTwoTone;
+
+float hash13(vec3 p){ return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
+float vnoise(vec3 p){
+  vec3 i = floor(p); vec3 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(
+    mix(mix(hash13(i), hash13(i+vec3(1,0,0)), f.x), mix(hash13(i+vec3(0,1,0)), hash13(i+vec3(1,1,0)), f.x), f.y),
+    mix(mix(hash13(i+vec3(0,0,1)), hash13(i+vec3(1,0,1)), f.x), mix(hash13(i+vec3(0,1,1)), hash13(i+vec3(1,1,1)), f.x), f.y),
+    f.z);
+}
+float fbm3(vec3 p){
+  float v = 0.0; float a = 0.5;
+  for (int i = 0; i < 4; i++) { v += a * vnoise(p); p = p * 2.03 + 1.7; a *= 0.5; }
+  return v;
+}
 
 void main() {
-  vec3 n = normalize(vNormal);
+  vec3 np = normalize(vObj);
+  float micro = fbm3(np * 18.0);
+  float micro2 = fbm3(np * 42.0 + 3.0);
+  vec3 n = normalize(vNormal + np * (micro - 0.5) * uClose * 0.22);
   vec3 l = normalize(uSun - vWorld);
   float ndl = dot(n, l);
   float dayF = smoothstep(-0.12, 0.18, ndl);
-  vec3 day = texture2D(uDay, vUv).rgb * uTint;
+  vec2 uv = vec2(fract(vUv.x + uTime * uFlow), vUv.y);
+  vec3 day = texture2D(uDay, uv).rgb * uTint;
+  day *= mix(1.0, 0.78 + 0.28 * micro2, uClose);
   vec3 nightTex = texture2D(uNight, vUv).rgb;
   float cloud = 0.0;
   if (uHasCloud > 0.5) {
@@ -163,6 +187,16 @@ void main() {
   }
   float fres = pow(1.0 - max(dot(n, viewDir), 0.0), 3.0);
   col += vec3(0.45, 0.65, 1.0) * fres * 0.08 * dayF;
+  if (uRegolith > 0.5) {
+    float sigma2 = 0.72;
+    float A = 1.0 - 0.5 * sigma2 / (sigma2 + 0.33);
+    float B = 0.45 * sigma2 / (sigma2 + 0.09);
+    float s = dot(l, viewDir) - ndl * dot(n, viewDir);
+    float t = mix(1.0, max(ndl, dot(n, viewDir)), step(0.0, s));
+    col *= A + B * max(0.0, s) * t;
+    col *= 0.92;
+  }
+  if (uTwoTone > 0.5) col *= np.x > 0.05 ? 0.28 : 1.0;
   gl_FragColor = vec4(col, 1.0);
   ${fragTail}
 }
@@ -183,6 +217,7 @@ uniform vec3 uRingNormal;
 uniform float uRingInner;
 uniform float uRingOuter;
 uniform float uHasRing;
+uniform float uHex;
 
 void main() {
   vec3 n = normalize(vNormal);
@@ -221,6 +256,13 @@ void main() {
       }
     }
   }
+  if (uHex > 0.5 && vUv.y > 0.86) {
+    float ang = atan(sin((vUv.x) * 6.28318), vUv.y - 0.93);
+    float hex = abs(sin(ang * 3.0));
+    col = mix(col, col * vec3(0.72, 0.88, 1.0), smoothstep(0.15, 0.85, hex) * smoothstep(0.86, 0.94, vUv.y));
+  }
+  float poleHaze = smoothstep(0.78, 0.98, abs(vUv.y * 2.0 - 1.0));
+  col += vec3(0.45, 0.7, 1.0) * poleHaze * dayF * 0.18;
   gl_FragColor = vec4(col, 1.0);
   ${fragTail}
 }
@@ -330,6 +372,7 @@ uniform float uInner;
 uniform float uOuter;
 uniform sampler2D uRing;
 uniform vec3 uTint;
+uniform float uSparkle;
 
 void main() {
   float r = length(vLocal.xy);
@@ -338,7 +381,14 @@ void main() {
   float fine = 0.72 + 0.28 * sin(u * 160.0) * sin(u * 47.0 + 1.7);
   float cass = smoothstep(0.02, 0.0, abs(u - 0.68));
   float encke = smoothstep(0.008, 0.0, abs(u - 0.81));
-  float alpha = max(tex.a, 0.35) * fine;
+  float band = 0.55;
+  if (u < 0.06) band = 0.12;
+  else if (u < 0.2) band = 0.38;
+  else if (u < 0.55) band = 1.0;
+  else if (u < 0.66) band = 0.7;
+  else if (u < 0.9) band = 0.84;
+  else band = 0.18;
+  float alpha = max(tex.a, 0.35) * fine * band;
   alpha *= 1.0 - cass;
   alpha *= 1.0 - encke * 0.85;
   alpha *= smoothstep(0.0, 0.02, u) * (1.0 - smoothstep(0.97, 1.0, u));
@@ -355,6 +405,8 @@ void main() {
   col += vec3(1.0, 0.93, 0.8) * back * alpha * 0.55;
   float mu = abs(dot(normalize(vWorld), vec3(0.0, 1.0, 0.0)));
   alpha *= mix(0.28, 1.0, mu);
+  float sp = fract(sin(dot(vLocal.xy, vec2(127.1, 311.7))) * 43758.5);
+  col += vec3(1.0) * step(0.992, sp) * uSparkle;
   gl_FragColor = vec4(col, clamp(alpha, 0.0, 0.95));
   ${fragTail}
 }

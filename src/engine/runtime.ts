@@ -1,8 +1,8 @@
 import * as THREE from 'three'
-import { BODY_BY_ID, TOURS } from '../astro/catalog'
+import { BODY_BY_ID, BODY_IDS, TOURS } from '../astro/catalog'
 import { displayRadius, initEphemeris, readPos, realRadius, writeDisplay, writeWorld } from '../astro/ephemeris'
-import { BODY_INDEX } from '../astro/catalog'
 import { AU, J2000, TAU, bandOf, clamp, smoother, v3, type V3 } from '../astro/math'
+import { echelleOf } from '../astro/scales'
 import { blip, ensureAudio, resumeAudio, setRadio } from './audio'
 import { cam64, detectMobile, sim, type CamMode } from './state'
 
@@ -178,6 +178,20 @@ function craftOffset(id: string, into: THREE.Vector3): THREE.Vector3 {
       return into.set(7, 3.5, 14)
     case 'newhorizons':
       return into.set(6, 3, 11)
+    case 'gaia':
+    case 'euclid':
+      return into.set(8, 4, 12)
+    case 'pioneer10':
+    case 'pioneer11':
+      return into.set(6, 3, 10)
+    case 'cassini':
+      return into.set(10, 5, 16)
+    case 'rosetta':
+      return into.set(8, 4, 12)
+    case 'gateway':
+      return into.set(18, 8, 16)
+    case 'apollo11':
+      return into.set(9, 5, 12)
     case 'starlink':
       return into.set(30, 12, 20)
     case 'gps':
@@ -189,7 +203,9 @@ function craftOffset(id: string, into: THREE.Vector3): THREE.Vector3 {
   }
 }
 
-function lookOnly(from: V3, to: V3, up: V3 = { x: 0, y: 1, z: 0 }): void {
+const WORLD_UP: V3 = { x: 0, y: 1, z: 0 }
+
+function lookOnly(from: V3, to: V3, up: V3 = WORLD_UP): void {
   zA.set(from.x - to.x, from.y - to.y, from.z - to.z)
   if (zA.lengthSq() < 1e-12) zA.set(0, 0, 1)
   zA.normalize()
@@ -201,7 +217,7 @@ function lookOnly(from: V3, to: V3, up: V3 = { x: 0, y: 1, z: 0 }): void {
   camQuat.setFromRotationMatrix(m4)
 }
 
-function lookToward(from: V3, to: V3, up: V3 = { x: 0, y: 1, z: 0 }): void {
+function lookToward(from: V3, to: V3, up: V3 = WORLD_UP): void {
   lookOnly(from, to, up)
   euler.setFromQuaternion(camQuat, 'YXZ')
   yaw = euler.y
@@ -307,8 +323,22 @@ export function viewSolarSystem(): void {
   sim.warp = 0
   warp = null
   sim.target = 'soleil'
+  sim.altitude = airDist
   placeAerial()
   blip(440)
+}
+
+export function setAltitude(meters: number): void {
+  const d = Math.max(meters, MIN_ALT)
+  if (sim.mode !== 'aerial') {
+    sim.mode = 'aerial'
+    sim.follow = false
+  }
+  targetDist = d
+  airDist = d
+  sim.follow = false
+  sim.altitude = d
+  placeAerial()
 }
 
 export function toggleFollow(): void {
@@ -454,7 +484,7 @@ function stepAerial(dt: number): void {
   const panning = Math.abs(forward) + Math.abs(strafe) > 0 || Math.abs(dragPanX) + Math.abs(dragPanY) > 0.5
   if (panning) sim.follow = false
 
-  const reach = Math.max(airDist, MIN_ALT)
+  const reach = Math.max(MIN_ALT, Math.min(airDist, Math.max(sim.nearestGap, MIN_ALT) * 8))
   const keyStep = reach * 0.7 * dt
   const dragStep = reach * 0.0024
   const mx = strafe * keyStep + dragPanX * dragStep
@@ -493,6 +523,7 @@ function stepAerial(dt: number): void {
   airYaw = dampAngle(airYaw, targetAirYaw, dt, 12)
   airTilt = damp(airTilt, targetAirTilt, dt, 12)
   placeAerial()
+  sim.altitude = airDist
   vel.x = vel.y = vel.z = 0
 }
 
@@ -557,7 +588,7 @@ function stepTour(dt: number): void {
 function updateNearest(): void {
   let best = 1e40
   let id = 'soleil'
-  const ids = Object.keys(BODY_INDEX)
+  const ids = BODY_IDS
   for (let i = 0; i < ids.length; i++) {
     const b = BODY_BY_ID[ids[i]]
     if (!b) continue
@@ -574,7 +605,10 @@ function updateNearest(): void {
   }
   sim.nearestId = id
   sim.nearestGap = Math.max(0.2, best)
-  sim.band = bandOf(Math.max(0, best))
+  const gap = Math.max(0, best)
+  sim.band = bandOf(gap)
+  sim.echelle = echelleOf(gap)
+  sim.altitude = sim.mode === 'aerial' ? airDist : gap
   readPos('jupiter', pA, true)
   readPos('saturne', pB, true)
   const dj = Math.hypot(pA.x - cam64[0], pA.y - cam64[1], pA.z - cam64[2])
@@ -679,10 +713,19 @@ export function boot(view: string): void {
   writeDisplay(false)
   if (!view || view === 'system' || view === 'hud') viewSolarSystem()
   else {
-    focusBody(
-      view === 'sun' ? 'soleil' : view === 'earth' ? 'terre' : view === 'saturn' ? 'saturne' : view === 'jwst' ? 'jwst' : view === 'm31' ? 'm31' : view === 'bh' ? 'sgr-a' : 'iss',
-      true,
-    )
+    const viewId: Record<string, string> = {
+      sun: 'soleil',
+      earth: 'terre',
+      saturn: 'saturne',
+      jwst: 'jwst',
+      m31: 'm31',
+      bh: 'sgr-a',
+      iss: 'iss',
+      voyager: 'voyager1',
+      toile: 'cmb',
+      cmb: 'cmb',
+    }
+    focusBody(viewId[view] ?? 'iss', true)
   }
   if (view === 'sun') {
     readPos('soleil', pB, true)
@@ -741,6 +784,7 @@ export function boot(view: string): void {
 }
 
 export function frame(dt: number, camera: THREE.PerspectiveCamera): void {
+  sim.frameMs = dt * 1000
   const h = Math.min(Math.max(dt, 0.0001), 0.1)
   if (!sim.paused) sim.jd += (h * sim.timeScale) / 86400
   writeWorld(sim.jd)

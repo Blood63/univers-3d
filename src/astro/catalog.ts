@@ -1,4 +1,5 @@
 import { AU, M_EARTH, M_SUN, R_EARTH, R_SUN, schwarzschild } from './math'
+import { applyV2Bodies, applyV2Tours } from './v2catalog'
 
 export type Category = 'galaxie' | 'etoile' | 'planete' | 'naine' | 'lune' | 'sonde' | 'phenomene' | 'nebuleuse'
 
@@ -1358,6 +1359,8 @@ export const ORBITS: Elements[] = [
   el('trappist-1h', 'trappist-1', 0.06189 * AU, 0.006, 0.5, 0, 0, 20),
 ]
 
+applyV2Bodies(BODIES, ORBITS)
+
 export const BODY_BY_ID: Record<string, BodyDef> = Object.fromEntries(BODIES.map((b) => [b.id, b]))
 export const ORBIT_BY_ID: Record<string, Elements> = Object.fromEntries(ORBITS.map((o) => [o.id, o]))
 export const BODY_IDS = BODIES.map((b) => b.id)
@@ -1451,6 +1454,8 @@ export const TOURS: Tour[] = [
     ],
   },
 ]
+
+applyV2Tours(TOURS)
 
 export function searchText(b: BodyDef): string {
   return `${b.name} ${b.id} ${b.category} ${b.spectral} ${b.summary}`.toLowerCase()

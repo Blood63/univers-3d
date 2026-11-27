@@ -27,6 +27,8 @@ import {
 } from './shaders'
 import { beltAsteroids, beltKuiper, bodyQuaternion, probePaths, screenStreak } from '../engine/runtime'
 import { cam64, labelFrame, sim } from '../engine/state'
+import { createCosmos } from './cosmos'
+import { followTexture, streamTextures } from '../engine/texcache'
 
 const tmp = v3()
 const tmp2 = v3()
@@ -34,6 +36,10 @@ const q = new THREE.Quaternion()
 const v = new THREE.Vector3()
 const c3 = new THREE.Color()
 const up = new THREE.Vector3(0, 1, 0)
+const awayV = new THREE.Vector3()
+const lookTarget = new THREE.Vector3()
+const labelPool: { id: string; name: string; x: number; y: number; sub: string }[] = []
+const labelView: { id: string; name: string; x: number; y: number; sub: string }[] = []
 
 function softTexture(): THREE.Texture {
   const c = document.createElement('canvas')
@@ -310,6 +316,19 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
     group.name = b.id
     root.add(group)
     const node: Node = { id: b.id, group }
+    const watchDay = (texKey: string) => {
+      followTexture(texKey, (t) => {
+        if (node.mat?.uniforms.uDay) node.mat.uniforms.uDay.value = t
+      })
+    }
+    if (b.id === 'jupiter') watchDay('jupiter')
+    else if (b.id === 'saturne') watchDay('saturn')
+    else if (b.id === 'mars') watchDay('mars')
+    else if (b.id === 'venus') watchDay('venus')
+    else if (b.id === 'mercure') watchDay('mercury')
+    else if (b.id === 'uranus') watchDay('uranus')
+    else if (b.id === 'neptune') watchDay('neptune')
+    else if (b.id === 'lune') watchDay('moon')
     if (b.kind === 'star') {
       const mat = new THREE.ShaderMaterial({
         uniforms: {
@@ -370,8 +389,13 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
           uRingNormal: { value: new THREE.Vector3(0, 1, 0) },
           uRingInner: { value: 1.2 },
           uRingOuter: { value: 2.3 },
-          uHasRing: { value: b.flags?.includes('rings') ? 1 : 0 },
+          uHasRing: { value: b.flags?.includes('rings') || b.flags?.includes('rings-thin') ? 1 : 0 },
           uGRS: { value: b.id === 'jupiter' ? 1 : 0 },
+          uClose: { value: 0 },
+          uRegolith: { value: b.flags?.includes('regolith') ? 1 : 0 },
+          uFlow: { value: b.flags?.includes('flow') ? 0.04 : 0 },
+          uTwoTone: { value: b.flags?.includes('twotone') ? 1 : 0 },
+          uHex: { value: b.flags?.includes('hexagon') ? 1 : 0 },
         },
         vertexShader: rockVertex,
         fragmentShader: gas ? gasFragment : rockFragment,
@@ -418,8 +442,8 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
         node.atmoMat = am
       }
       if (b.flags?.includes('rings') || b.flags?.includes('rings-thin')) {
-        const inner = b.id === 'uranus' ? 1.5 : 1.15
-        const outer = b.id === 'uranus' ? 2.0 : 2.32
+        const inner = b.flags?.includes('rings-thin') ? 1.42 : b.id === 'uranus' ? 1.5 : 1.15
+        const outer = b.flags?.includes('rings-thin') ? 1.72 : b.id === 'uranus' ? 2.0 : 2.32
         const geo = new THREE.RingGeometry(inner, outer, 160, 4)
         const rm = new THREE.ShaderMaterial({
           uniforms: {
@@ -429,7 +453,8 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
             uInner: { value: inner },
             uOuter: { value: outer },
             uRing: { value: tex.saturnRing ?? blank },
-            uTint: { value: new THREE.Color(b.id === 'uranus' ? '#9fd0d4' : '#efe2c9') },
+            uTint: { value: new THREE.Color(b.flags?.includes('rings-thin') ? '#d5dde8' : b.id === 'uranus' ? '#9fd0d4' : '#efe2c9') },
+            uSparkle: { value: 0 },
           },
           vertexShader: ringVertex,
           fragmentShader: ringFragment,
@@ -497,6 +522,7 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
         group.add(jet2)
       }
       if (b.flags?.includes('irregular')) mesh.scale.set(1, 0.62, 1)
+      if (b.flags?.includes('void') || b.flags?.includes('horizon')) mesh.scale.setScalar(0.15)
       const axis = new THREE.Vector3()
       if (b.id === 'mw') axis.set(galN.x, galN.y, galN.z)
       else axis.set(0.34, 0.78, 0.42).normalize()
@@ -583,6 +609,59 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
       tail.name = 'dust'
       ion.name = 'ion'
     }
+    if (b.flags?.includes('bilobe')) {
+      const lobe = new THREE.Mesh(sphere, node.mat ?? new THREE.MeshStandardMaterial({ color: b.color, roughness: 0.92 }))
+      lobe.position.x = 0.7
+      lobe.scale.setScalar(0.68)
+      group.add(lobe)
+    }
+    if (b.flags?.includes('irregular') && node.mesh && b.kind !== 'galaxy') node.mesh.scale.set(1.4, 0.82, 1.08)
+    if (b.flags?.includes('globular')) {
+      const count = sim.quality === 'low' ? 1800 : 7000
+      const pos = new Float32Array(count * 3)
+      const col = new Float32Array(count * 3)
+      for (let i = 0; i < count; i++) {
+        const u = Math.random()
+        const v = Math.random()
+        const th = u * Math.PI * 2
+        const ph = Math.acos(2 * v - 1)
+        const rad = Math.pow(Math.random(), 0.45) * 0.95
+        pos[i * 3] = rad * Math.sin(ph) * Math.cos(th)
+        pos[i * 3 + 1] = rad * Math.sin(ph) * Math.sin(th)
+        pos[i * 3 + 2] = rad * Math.cos(ph)
+        const warm = Math.random()
+        col[i * 3] = 0.85 + warm * 0.15
+        col[i * 3 + 1] = 0.75 + warm * 0.1
+        col[i * 3 + 2] = 0.55
+      }
+      const geo = new THREE.BufferGeometry()
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+      geo.setAttribute('color', new THREE.BufferAttribute(col, 3))
+      const pts = new THREE.Points(geo, new THREE.PointsMaterial({ size: 1.4, vertexColors: true, sizeAttenuation: false, transparent: true, opacity: 0.9, depthWrite: false }))
+      group.add(pts)
+    }
+    if (b.flags?.includes('collision') && node.mesh) {
+      const twin = node.mesh.clone()
+      twin.position.x = 0.85
+      twin.scale.setScalar(0.72)
+      group.add(twin)
+      const tail = new THREE.Mesh(
+        new THREE.ConeGeometry(0.08, 1.4, 8),
+        new THREE.MeshBasicMaterial({ color: '#f2d2ff', transparent: true, opacity: 0.45, depthWrite: false }),
+      )
+      tail.rotation.z = Math.PI / 2
+      tail.position.x = 1.5
+      group.add(tail)
+    }
+    if (b.flags?.includes('dustlane')) {
+      const lane = new THREE.Mesh(
+        new THREE.BoxGeometry(1.6, 0.04, 0.35),
+        new THREE.MeshBasicMaterial({ color: '#1a120c' }),
+      )
+      lane.rotation.z = 0.4
+      group.add(lane)
+    }
+    if (b.flags?.includes('ringgal') && node.mesh) node.mesh.scale.set(1, 1, 1)
     nodes.set(b.id, node)
   }
 
@@ -624,7 +703,7 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
   root.add(gpsMesh, geoMesh)
 
   const orbitMat = new THREE.LineBasicMaterial({ color: '#9eb6ff', transparent: true, opacity: 0.35 })
-  const orbitIds = ['mercure', 'venus', 'terre', 'mars', 'jupiter', 'saturne', 'uranus', 'neptune', 'pluton', 'ceres']
+  const orbitIds = ['mercure', 'venus', 'terre', 'mars', 'jupiter', 'saturne', 'uranus', 'neptune', 'pluton', 'ceres', 'eris', 'haumea', 'makemake']
   const orbits = new Map<string, THREE.Line>()
   for (const id of orbitIds) {
     const geo = new THREE.BufferGeometry()
@@ -636,7 +715,7 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
   }
   const pathMat = new THREE.LineBasicMaterial({ color: '#f0c27a', transparent: true, opacity: 0.8 })
   const pathLines: Record<string, THREE.Line> = {}
-  for (const id of ['voyager1', 'voyager2', 'newhorizons']) {
+  for (const id of ['voyager1', 'voyager2', 'newhorizons', 'pioneer10', 'pioneer11']) {
     const geo = new THREE.BufferGeometry()
     geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(3), 3))
     const line = new THREE.Line(geo, pathMat.clone())
@@ -655,7 +734,23 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
     new THREE.SphereGeometry(120 * AU, 48, 24),
     new THREE.MeshBasicMaterial({ color: '#7eb6ff', transparent: true, opacity: 0.05, wireframe: true }),
   )
+  helio.scale.set(1.08, 0.84, 1.55)
   root.add(helio)
+  const shock = new THREE.Mesh(
+    new THREE.SphereGeometry(90 * AU, 32, 16),
+    new THREE.MeshBasicMaterial({ color: '#b7d4ff', transparent: true, opacity: 0.045, wireframe: true, depthWrite: false }),
+  )
+  shock.scale.set(1.02, 0.9, 1.25)
+  root.add(shock)
+  const cosmos = createCosmos()
+  root.add(cosmos.object)
+  const navMats: THREE.MeshStandardMaterial[] = []
+  root.traverse((obj) => {
+    if (obj.name === 'navlight') {
+      const mesh = obj as THREE.Mesh
+      if (!Array.isArray(mesh.material)) navMats.push(mesh.material as THREE.MeshStandardMaterial)
+    }
+  })
   const grid = new THREE.PolarGridHelper(40 * AU, 8, 24, 64, '#3a4a66', '#243044')
   grid.rotation.x = Math.PI / 2
   root.add(grid)
@@ -789,6 +884,7 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
     const inside = gdist < 45000 * LY
     sky.visible = inside
 
+    let shownBodies = 0
     for (const id of BODY_IDS) {
       const b = BODY_BY_ID[id]
       const node = nodes.get(id)
@@ -818,11 +914,17 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
         if (node.mat.uniforms.uSun) node.mat.uniforms.uSun.value.copy(sunRender)
         if (node.mat.uniforms.uCenter) node.mat.uniforms.uCenter.value.copy(node.group.position)
         if (node.mat.uniforms.uCloudOff) node.mat.uniforms.uCloudOff.value = time * 0.002
-        if (b.flags?.includes('rings')) {
+        if (b.flags?.includes('rings') || b.flags?.includes('rings-thin')) {
           up.set(0, 1, 0).applyQuaternion(node.group.quaternion)
           node.mat.uniforms.uRingNormal.value.copy(up)
-          node.mat.uniforms.uRingInner.value = r * 1.15
-          node.mat.uniforms.uRingOuter.value = r * 2.32
+          const thin = b.flags?.includes('rings-thin')
+          node.mat.uniforms.uRingInner.value = r * (thin ? 1.42 : b.id === 'uranus' ? 1.5 : 1.15)
+          node.mat.uniforms.uRingOuter.value = r * (thin ? 1.72 : b.id === 'uranus' ? 2.0 : 2.32)
+        }
+        if (node.mat.uniforms.uClose) {
+          const ratio = dist / Math.max(r, 1)
+          const edge = ratio < 1.2 ? 1 : ratio > 3 ? 0 : (3 - ratio) / 1.8
+          node.mat.uniforms.uClose.value = edge
         }
       }
       if (node.atmo && node.atmoMat?.uniforms.uRadius) {
@@ -837,6 +939,9 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
         node.ringMat.uniforms.uSun.value.copy(sunRender)
         node.ringMat.uniforms.uPlanet.value.copy(node.group.position)
         node.ringMat.uniforms.uPlanetR.value = r
+        const angR = 2 * Math.atan(r / Math.max(dist, 1))
+        const pxR = (angR / ((sim.fov * Math.PI) / 180)) * Math.max(h, 1)
+        if (node.ringMat.uniforms.uSparkle) node.ringMat.uniforms.uSparkle.value = pxR > 80 ? 1 : 0
       }
       if (node.glow && b.kind === 'star') {
         const minS = Math.max(r * 5, dist * 0.02)
@@ -850,6 +955,7 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
         if (node.rings) node.rings.visible = px > 5
         if (node.atmo && node.atmoMat?.uniforms.uRadius) node.atmo.visible = px > 7
         if (node.clouds) node.clouds.visible = px > 6
+        if (node.glow) node.glow.visible = px > 2.2 || id === sim.selected
       }
       if (b.kind === 'galaxy') {
         node.group.visible = id === 'mw' ? !inside : true
@@ -872,21 +978,40 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
       if (b.kind === 'comet') {
         const dust = node.group.getObjectByName('dust')
         const ion = node.group.getObjectByName('ion')
-        const away = sunRender.clone().sub(node.group.position)
-        if (away.lengthSq() < 1) away.set(0, 0, 1)
-        away.normalize()
+        awayV.copy(sunRender).sub(node.group.position)
+        if (awayV.lengthSq() < 1) awayV.set(0, 0, 1)
+        awayV.normalize()
         const sunDist = Math.max(0.2, distToSun(id))
         const stretch = clampComet(sunDist)
         for (const tail of [dust, ion]) {
           if (!tail) continue
-          tail.position.copy(away).multiplyScalar(stretch * (tail.name === 'ion' ? 4.2 : 2.6))
-          tail.lookAt(node.group.position.clone().add(away))
+          tail.position.copy(awayV).multiplyScalar(stretch * (tail.name === 'ion' ? 4.2 : 2.6))
+          lookTarget.copy(node.group.position).add(awayV)
+          tail.lookAt(lookTarget)
           tail.scale.set(tail.name === 'ion' ? 0.7 : 1.15, tail.name === 'ion' ? stretch * 1.4 : stretch, tail.name === 'ion' ? 0.7 : 1.15)
         }
         if (node.glow) node.glow.scale.setScalar(2.4 + stretch)
       }
-      if (b.kind === 'nebula') node.group.visible = dist < r * 8 || dist > r * 0.2
+      if (b.kind === 'craft' || b.kind === 'constellation' || b.kind === 'comet') {
+        const angC = 2 * Math.atan(Math.max(r, 12) / Math.max(dist, 1))
+        const pxC = (angC / ((sim.fov * Math.PI) / 180)) * Math.max(h, 1)
+        node.group.visible = pxC > 1.3 || id === sim.selected || id === sim.nearestId
+      }
+      if (b.kind === 'nebula') {
+        const angN = 2 * Math.atan(r / Math.max(dist, 1))
+        const pxN = (angN / ((sim.fov * Math.PI) / 180)) * Math.max(h, 1)
+        node.group.visible = (sim.echelle >= 5 && pxN > 2.5) || id === sim.selected
+      }
+      if (id === 'parker') {
+        const shield = node.group.getObjectByName('heatshield') as THREE.Mesh | undefined
+        const mat = shield && !Array.isArray(shield.material) ? (shield.material as THREE.MeshStandardMaterial) : undefined
+        if (mat) mat.emissiveIntensity = distToSun(id) < 0.28 ? 2.4 : 0.12
+      }
+      if (node.group.visible) shownBodies += 1
     }
+    sim.activeBodies = shownBodies
+    const blink = Math.sin(time * 5.2) > 0 ? 7 : 0.15
+    for (let i = 0; i < navMats.length; i++) navMats[i].emissiveIntensity = blink
 
     // catalog stars relative to camera
     for (let i = 0; i < STARS.length; i++) {
@@ -966,10 +1091,10 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
       }
       attr.needsUpdate = true
     }
-    for (const id of ['voyager1', 'voyager2', 'newhorizons']) {
+    for (const id of ['voyager1', 'voyager2', 'newhorizons', 'pioneer10', 'pioneer11']) {
       const line = pathLines[id]
       const data = probePaths[id]
-      line.visible = sim.layers.trajectories && !!data
+      line.visible = sim.layers.trajectories && !!data && (sim.echelle >= 3 || id === sim.selected)
       if (!data) continue
       let attr = line.geometry.attributes.position as THREE.BufferAttribute | undefined
       if (!attr || attr.array.length !== data.length) {
@@ -1063,35 +1188,76 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
 
     hz.position.set(-cam64[0], -cam64[1], -cam64[2])
     helio.position.copy(hz.position)
+    shock.position.copy(hz.position)
     grid.position.copy(hz.position)
     hz.visible = sim.layers.habitable
     helio.visible = sim.layers.heliosphere
+    shock.visible = sim.layers.heliosphere
+    const sunDistM = Math.hypot(cam64[0], cam64[1], cam64[2])
+    cosmos.update(sim.echelle, sunDistM)
+    streamTextures(sunDistM / LY)
     grid.visible = sim.layers.ecliptic && (sim.band === 'systeme' || sim.scaleMode === 'orrery')
 
     labelAcc += dt
     if (labelAcc > 0.12) {
       labelAcc = 0
-      const items = []
-      const want = new Set<string>([sim.selected, sim.nearestId, 'soleil', 'terre'])
-      if (sim.layers.labels) {
-        for (const id of ['lune', 'mars', 'jupiter', 'saturne', 'iss', 'jwst', 'm31', 'sgr-a']) want.add(id)
-      }
-      for (const id of want) {
-        if (!BODY_BY_ID[id]) continue
+      labelView.length = 0
+      const consider = (id: string) => {
+        if (!id || !BODY_BY_ID[id]) return
+        if (!sim.layers.labels && id !== sim.selected) return
+        for (let i = 0; i < labelView.length; i++) if (labelView[i].id === id) return
         readPos(id, tmp, true)
         v.set(tmp.x - cam64[0], tmp.y - cam64[1], tmp.z - cam64[2])
-        if (!sim.layers.labels && id !== sim.selected) continue
         v.project(camera)
-        if (v.z > 1) continue
-        items.push({
-          id,
-          name: BODY_BY_ID[id].name,
-          x: (v.x * 0.5 + 0.5) * w,
-          y: (-v.y * 0.5 + 0.5) * h,
-          sub: id === sim.selected ? 'sélection' : '',
-        })
+        if (v.z > 1) return
+        const x = (v.x * 0.5 + 0.5) * w
+        const y = (-v.y * 0.5 + 0.5) * h
+        if (id !== sim.selected) {
+          for (let i = 0; i < labelView.length; i++) {
+            const dx = labelView[i].x - x
+            const dy = labelView[i].y - y
+            if (dx * dx + dy * dy < 28 * 28) return
+          }
+        }
+        const slot = labelPool[labelView.length] ?? { id: '', name: '', x: 0, y: 0, sub: '' }
+        if (!labelPool[labelView.length]) labelPool.push(slot)
+        slot.id = id
+        slot.name = BODY_BY_ID[id].name
+        slot.x = x
+        slot.y = y
+        slot.sub = id === sim.selected ? 'sélection' : ''
+        labelView.push(slot)
       }
-      labelFrame.items = items
+      consider(sim.selected)
+      consider(sim.nearestId)
+      consider('soleil')
+      if (sim.layers.labels) {
+        const e = sim.echelle
+        if (e <= 4) {
+          consider('terre')
+          consider('lune')
+          consider('mars')
+          consider('jupiter')
+          consider('saturne')
+          consider('iss')
+          consider('voyager1')
+        } else if (e <= 7) {
+          consider('proxima')
+          consider('m45')
+          consider('omega-cen')
+          consider('sgr-a')
+        } else if (e <= 9) {
+          consider('m31')
+          consider('m87')
+          consider('laniakea')
+          consider('cena')
+        } else {
+          consider('cmb')
+          consider('mur-hercule')
+          consider('vide-bouvier')
+        }
+      }
+      labelFrame.items = labelView
       readPos('soleil', tmp, true)
       v.set(tmp.x - cam64[0], tmp.y - cam64[1], tmp.z - cam64[2])
       const sd = v.length()

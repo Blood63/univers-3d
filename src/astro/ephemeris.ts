@@ -114,7 +114,7 @@ function bodyOnDate(id: string, jd: number): V3 {
   return into
 }
 
-function polyline(jd: number, wps: { jd: number; id: string }[], asymptote: V3, anchorJd: number, anchor: V3, into: V3): V3 {
+function polyline(jd: number, wps: { jd: number; id: string }[], asymptote: V3, anchorJd: number, anchorPos: V3, into: V3, speedAuYear = 3.6): V3 {
   if (jd <= wps[0].jd) return copyV(into, bodyOnDate(wps[0].id, wps[0].jd))
   for (let i = 0; i < wps.length - 1; i++) {
     const a = wps[i]
@@ -133,31 +133,38 @@ function polyline(jd: number, wps: { jd: number; id: string }[], asymptote: V3, 
   const pLast = bodyOnDate(last.id, last.jd)
   if (jd <= anchorJd) {
     const t = (jd - last.jd) / (anchorJd - last.jd)
-    into.x = pLast.x + (anchor.x - pLast.x) * t
-    into.y = pLast.y + (anchor.y - pLast.y) * t
-    into.z = pLast.z + (anchor.z - pLast.z) * t
+    into.x = pLast.x + (anchorPos.x - pLast.x) * t
+    into.y = pLast.y + (anchorPos.y - pLast.y) * t
+    into.z = pLast.z + (anchorPos.z - pLast.z) * t
     return into
   }
   const years = (jd - anchorJd) / 365.25
-  const speed = 3.6 * AU
-  into.x = anchor.x + asymptote.x * speed * years
-  into.y = anchor.y + asymptote.y * speed * years
-  into.z = anchor.z + asymptote.z * speed * years
+  const speed = speedAuYear * AU
+  into.x = anchorPos.x + asymptote.x * speed * years
+  into.y = anchorPos.y + asymptote.y * speed * years
+  into.z = anchorPos.z + asymptote.z * speed * years
   return into
 }
 
 let v1Dir: V3 | null = null
 let v2Dir: V3 | null = null
 let nhDir: V3 | null = null
+let p10Dir: V3 | null = null
+let p11Dir: V3 | null = null
+const l2up: V3 = v3(0, 1, 0)
 
 function dirs(): void {
   if (v1Dir) return
   v1Dir = v3()
   v2Dir = v3()
   nhDir = v3()
+  p10Dir = v3()
+  p11Dir = v3()
   raDecDir(258.0, 12.0, v1Dir)
   raDecDir(299.5, -57.2, v2Dir)
   raDecDir(287.5, -20.5, nhDir)
+  raDecDir(68.0, 16.0, p10Dir)
+  raDecDir(290.0, -8.0, p11Dir)
 }
 
 const V1_WP = [
@@ -177,11 +184,51 @@ const NH_WP = [
   { jd: ymdToJD(2007, 2, 28), id: 'jupiter' },
   { jd: ymdToJD(2015, 7, 14), id: 'pluton' },
 ]
+const P10_WP = [
+  { jd: ymdToJD(1972, 3, 2), id: 'terre' },
+  { jd: ymdToJD(1973, 12, 4), id: 'jupiter' },
+]
+const P11_WP = [
+  { jd: ymdToJD(1973, 4, 6), id: 'terre' },
+  { jd: ymdToJD(1974, 12, 3), id: 'jupiter' },
+  { jd: ymdToJD(1979, 9, 1), id: 'saturne' },
+]
 
 function anchor(dir: V3, au: number, into: V3): V3 {
   into.x = dir.x * au * AU
   into.y = dir.y * au * AU
   into.z = dir.z * au * AU
+  return into
+}
+
+function placeL2(jd: number, phase: number, into: V3): V3 {
+  helio('terre', jd, tmpD)
+  const ex = tmpD.x
+  const ey = tmpD.y
+  const ez = tmpD.z
+  const sl = Math.hypot(ex, ey, ez) || 1
+  const ux = ex / sl
+  const uy = ey / sl
+  const uz = ez / sl
+  let px = l2up.y * uz - l2up.z * uy
+  let py = l2up.z * ux - l2up.x * uz
+  let pz = l2up.x * uy - l2up.y * ux
+  const pl = Math.hypot(px, py, pz) || 1
+  px /= pl
+  py /= pl
+  pz /= pl
+  const qx = uy * pz - uz * py
+  const qy = uz * px - ux * pz
+  const qz = ux * py - uy * px
+  const ang = ((jd - 2451545.0) / 180) * Math.PI * 2 + phase
+  const R = 8.0e8
+  const hx = (px * Math.cos(ang) + qx * Math.sin(ang) * 0.72) * R
+  const hy = (py * Math.cos(ang) + qy * Math.sin(ang) * 0.72) * R
+  const hz = (pz * Math.cos(ang) + qz * Math.sin(ang) * 0.72) * R
+  const L2 = 1.5e9
+  into.x = ex + ux * L2 + hx
+  into.y = ey + uy * L2 + hy
+  into.z = ez + uz * L2 + hz
   return into
 }
 
@@ -194,7 +241,7 @@ export function helio(id: string, jd: number, into: V3): V3 {
     into.z = fixed[idx * 3 + 2]
     return into
   }
-  if (id === 'voyager1' || id === 'voyager2' || id === 'newhorizons') {
+  if (id === 'voyager1' || id === 'voyager2' || id === 'newhorizons' || id === 'pioneer10' || id === 'pioneer11') {
     dirs()
     if (id === 'voyager1') {
       anchor(v1Dir!, 169.2, tmpB)
@@ -204,35 +251,37 @@ export function helio(id: string, jd: number, into: V3): V3 {
       anchor(v2Dir!, 141.5, tmpB)
       return polyline(jd, V2_WP, v2Dir!, ymdToJD(2026, 1, 1), tmpB, into)
     }
+    if (id === 'pioneer10') {
+      anchor(p10Dir!, 139, tmpB)
+      return polyline(jd, P10_WP, p10Dir!, ymdToJD(2026, 1, 1), tmpB, into, 2.5)
+    }
+    if (id === 'pioneer11') {
+      anchor(p11Dir!, 116, tmpB)
+      return polyline(jd, P11_WP, p11Dir!, ymdToJD(2026, 1, 1), tmpB, into, 2.4)
+    }
     anchor(nhDir!, 63.2, tmpB)
     return polyline(jd, NH_WP, nhDir!, ymdToJD(2026, 1, 1), tmpB, into)
   }
-  if (id === 'jwst') {
-    helio('terre', jd, tmpD)
-    const sl = Math.hypot(tmpD.x, tmpD.y, tmpD.z) || 1
-    const ux = tmpD.x / sl
-    const uy = tmpD.y / sl
-    const uz = tmpD.z / sl
-    const up = v3(0, 1, 0)
-    let px = up.y * uz - up.z * uy
-    let py = up.z * ux - up.x * uz
-    let pz = up.x * uy - up.y * ux
-    const pl = Math.hypot(px, py, pz) || 1
-    px /= pl
-    py /= pl
-    pz /= pl
-    const qx = uy * pz - uz * py
-    const qy = uz * px - ux * pz
-    const qz = ux * py - uy * px
-    const ang = ((jd - 2451545.0) / 180) * Math.PI * 2
-    const R = 8.0e8
-    const hx = (px * Math.cos(ang) + qx * Math.sin(ang) * 0.72) * R
-    const hy = (py * Math.cos(ang) + qy * Math.sin(ang) * 0.72) * R
-    const hz = (pz * Math.cos(ang) + qz * Math.sin(ang) * 0.72) * R
-    const L2 = 1.5e9
-    into.x = tmpD.x + ux * L2 + hx
-    into.y = tmpD.y + uy * L2 + hy
-    into.z = tmpD.z + uz * L2 + hz
+  if (id === 'jwst' || id === 'gaia' || id === 'euclid') {
+    const phase = id === 'gaia' ? 2.1 : id === 'euclid' ? 4.2 : 0
+    return placeL2(jd, phase, into)
+  }
+  if (id === 'apollo11') {
+    helio('lune', jd, into)
+    const mx = into.x
+    const my = into.y
+    const mz = into.z
+    const R = 1.7374e6 + 6
+    let ox = 0.62
+    let oy = 0.18
+    let oz = 0.76
+    const ol = Math.hypot(ox, oy, oz) || 1
+    ox /= ol
+    oy /= ol
+    oz /= ol
+    into.x = mx + ox * R
+    into.y = my + oy * R
+    into.z = mz + oz * R
     return into
   }
   if (ORBIT_BY_ID[id]) return placeOrbit(id, jd, into)

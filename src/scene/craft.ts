@@ -71,6 +71,7 @@ function light(color: string, parent: THREE.Object3D, x: number, y: number, z: n
     new THREE.MeshStandardMaterial({ color: '#000', emissive: color, emissiveIntensity: 6, roughness: 1 }),
   )
   m.position.set(x, y, z)
+  m.name = 'navlight'
   parent.add(m)
 }
 
@@ -250,7 +251,15 @@ export function buildVoyager(): THREE.Group {
   )
   record.rotation.z = Math.PI / 2
   record.position.set(0, -0.82, -0.8)
+  record.name = 'golden-record'
   g.add(record)
+  const groove = new THREE.Mesh(
+    new THREE.TorusGeometry(0.38, 0.012, 6, 24),
+    new THREE.MeshStandardMaterial({ color: '#c9a24a', metalness: 0.8, roughness: 0.35 }),
+  )
+  groove.rotation.z = Math.PI / 2
+  groove.position.copy(record.position)
+  g.add(groove)
   cyl(0.08, 1.4, alum, g, -1.1, 0.4, -0.2, 'y')
   return g
 }
@@ -260,6 +269,10 @@ export function buildParker(): THREE.Group {
   const shield = new THREE.Mesh(new THREE.CylinderGeometry(1.15, 1.15, 0.18, 6), new THREE.MeshStandardMaterial({ color: '#2a2e33', metalness: 0.4, roughness: 0.55 }))
   shield.rotation.x = Math.PI / 2
   shield.position.z = 0.8
+  shield.name = 'heatshield'
+  const shieldMat = shield.material as THREE.MeshStandardMaterial
+  shieldMat.emissive = new THREE.Color('#ff6a2a')
+  shieldMat.emissiveIntensity = 0.12
   g.add(shield)
   box(0.7, 0.7, 0.9, alum, g, 0, 0, -0.1)
   cyl(0.12, 0.45, kapton, g, 0, 0.2, 0.95, 'z')
@@ -299,6 +312,82 @@ export function buildStarlinkSat(): THREE.Group {
   return g
 }
 
+export function buildGaia(): THREE.Group {
+  const g = new THREE.Group()
+  const dish = new THREE.Mesh(new THREE.CylinderGeometry(1.7, 1.7, 0.12, 28), white)
+  dish.rotation.x = Math.PI / 2
+  g.add(dish)
+  cyl(0.55, 1.3, alum, g, 0, 0, -0.8, 'z')
+  box(3.2, 0.08, 1.1, solarMat, g, 0, 0, -1.6)
+  light('#9ec5ff', g, 0, 0.2, 0.3)
+  return g
+}
+
+export function buildEuclid(): THREE.Group {
+  const g = new THREE.Group()
+  cyl(0.7, 2.2, alum, g, 0, 0, 0, 'z')
+  cyl(0.95, 0.35, white, g, 0, 0, 1.2, 'z')
+  box(2.4, 0.08, 1.2, solarMat, g, 2.2, 0, -0.2)
+  box(2.4, 0.08, 1.2, solarMat, g, -2.2, 0, -0.2)
+  light('#d7ecff', g, 0, 0.4, 1.3)
+  return g
+}
+
+export function buildPioneer(): THREE.Group {
+  const g = new THREE.Group()
+  const dish = new THREE.Mesh(new THREE.SphereGeometry(1.35, 28, 14, 0, Math.PI * 2, 0, 0.45), white)
+  dish.rotation.x = Math.PI
+  g.add(dish)
+  box(0.7, 0.7, 1.1, alum, g, 0, 0, -0.9)
+  cyl(0.08, 2.4, kapton, g, 0.9, 0, -0.4, 'x')
+  cyl(0.05, 4.5, alum, g, 0, 0, -3.2, 'z')
+  return g
+}
+
+export function buildCassini(): THREE.Group {
+  const g = new THREE.Group()
+  const dish = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 0.1, 24), white)
+  dish.rotation.x = Math.PI / 2
+  dish.position.z = 0.9
+  g.add(dish)
+  box(1.1, 0.9, 1.6, gold, g, 0, 0, -0.3)
+  cyl(0.12, 6, alum, g, 0, 0, -3.5, 'z')
+  box(2.2, 0.06, 0.8, solarMat, g, 1.6, 0, 0)
+  return g
+}
+
+export function buildRosetta(): THREE.Group {
+  const g = new THREE.Group()
+  box(1.2, 1.1, 1.4, alum, g)
+  box(2.6, 0.08, 1.3, solarMat, g, 2.2, 0, 0)
+  box(2.6, 0.08, 1.3, solarMat, g, -2.2, 0, 0)
+  cyl(0.2, 1.1, kapton, g, 0, 0.7, 0.4, 'z')
+  light('#f0c27a', g, 0, 0.2, 0.8)
+  return g
+}
+
+export function buildGateway(): THREE.Group {
+  const g = new THREE.Group()
+  cyl(1.6, 6, white, g, 0, 0, 0, 'x')
+  cyl(1.3, 4, mli, g, 0, 0, 3.2, 'z')
+  box(8, 0.1, 2.2, solarMat, g, 0, 0, -2.4)
+  box(1.2, 1.2, 1.2, alum, g, 4, 0, 0)
+  light('#9dff6a', g, -3.2, 0.4, 0)
+  return g
+}
+
+export function buildApollo(): THREE.Group {
+  const g = new THREE.Group()
+  box(2.2, 1.5, 2.2, gold, g, 0, 1.2, 0)
+  cyl(0.9, 0.4, kapton, g, 0, 2.1, 0, 'y')
+  for (const [x, z] of [[1.1, 1.1], [1.1, -1.1], [-1.1, 1.1], [-1.1, -1.1]] as const) {
+    cyl(0.06, 1.6, alum, g, x, 0.2, z, 'y')
+  }
+  box(0.7, 0.15, 0.5, white, g, 0, 0.05, 1.4)
+  light('#ffd29a', g, 0, 2.4, 0)
+  return g
+}
+
 export const CRAFT_BUILDERS: Record<string, () => THREE.Group> = {
   iss: buildISS,
   tiangong: buildTiangong,
@@ -309,4 +398,12 @@ export const CRAFT_BUILDERS: Record<string, () => THREE.Group> = {
   voyager1: buildVoyager,
   voyager2: buildVoyager,
   newhorizons: buildNewHorizons,
+  gaia: buildGaia,
+  euclid: buildEuclid,
+  pioneer10: buildPioneer,
+  pioneer11: buildPioneer,
+  cassini: buildCassini,
+  rosetta: buildRosetta,
+  gateway: buildGateway,
+  apollo11: buildApollo,
 }
