@@ -126,6 +126,7 @@ export function HUD({ nonce }: { nonce: number }) {
                 [
                   ['orbits', 'Orbites'],
                   ['trajectories', 'Trajectoires'],
+                  ['groundTrack', 'Trace au sol ISS'],
                   ['labels', 'Étiquettes'],
                   ['constellations', 'Constellations'],
                   ['ecliptic', 'Grille écliptique'],

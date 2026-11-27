@@ -15,6 +15,7 @@ export interface Layers {
   habitable: boolean
   heliosphere: boolean
   debris: boolean
+  groundTrack: boolean
 }
 
 export const QUALITY_PRESET: Record<
@@ -79,6 +80,7 @@ export const sim = {
     habitable: false,
     heliosphere: false,
     debris: false,
+    groundTrack: true,
   } as Layers,
   hover: null as string | null,
   ready: false,

@@ -252,8 +252,23 @@ Les meshes planétaires et leurs atmosphères se coupent sous un seuil angulaire
 
 Le calque de gauche est masqué sous 768 px. La qualité Mobile reste sélectionnée automatiquement sur pointeur grossier. Le compteur de draw calls ignore les lectures vides du composer.
 
-### Revue face au cahier des charges
+### Cycle 12 — Les trois écarts fermés
 
-Présent et revu : origine flottante, depth logarithmique, worker (ceintures, trajectoires, éphémérides), six régimes d’échelle, post-traitement HDR, catalogue demandé, engins humains, temps, orrery, comparateur, règle, vol 6 DoF, warp, trois modes caméra plus la poursuite, quatre visites, photo, audio, HUD français, Ctrl+K, calques, presets.
+Trace au sol. Une orbite d’ISS (pas de 92,68 min) est projetée dans le repère tournant de la Terre (obliquité 23,44°, jour sidéral) et dessinée à 1,012 rayon, enfant du globe, donc collée aux continents. Calque « Trace au sol ISS », coché par défaut. Visible sur la vue Terre comme un arc ambre qui traverse l’Afrique et l’Atlantique.
 
-Encore simplifié, et dit comme tel : la trace au sol de l’ISS n’est pas une courbe peinte sur le globe ; la lentille gravitationnelle ne déforme pas le champ d’étoiles derrière le trou noir (le disque Doppler et l’horizon le sont) ; le nombre de draw calls affiché reste peu fiable à cause du composer. Ce sont les trois écarts que je ne présente pas comme fermés.
+Lentille. Sagittarius A* et Cygnus X-1 dévient le ciel et les étoiles de fond avec l’approximation de Schwarzschild : angle d’Einstein θ_E² = 2 R_s / D, image primaire θ = ½ (β + √(β² + 4 θ_E²)) pour les étoiles, et β = θ − θ_E²/θ pour le ciel (y compris l’image secondaire de l’autre côté de l’axe). Les rayons de Schwarzschild passés au shader sont ceux de la coquille de rendu, donc la déviation a la bonne taille angulaire quand on s’approche. Autour de Sgr A*, le ciel se tord en anneau et des étoiles proches deviennent des arcs.
+
+Compteur. `gl.info.autoReset` est coupé. La lecture se fait dans un `useFrame` de priorité 2, après le `EffectComposer` (priorité 1), puis le compteur est remis à zéro. Les draw calls ne sont plus écrasés par le blit final. Contrôle headless : ISS 94 appels, Terre 203, Sgr A* 302, zéro `pageerror` et zéro erreur shader. Les FPS sont une moyenne sur 400 ms. Sur SwiftShader ils restent bas (quelques images à quelques dizaines) ; le compteur lui-même suit le vrai coût, et un GPU de bureau n’a pas ce plafond logiciel.
+
+La grille galactique (plan orienté vers le pôle galactique, centrée sur la caméra) et le calque débris (points en orbite basse) répondent enfin à leur case, qui ne faisait rien.
+
+### Revue finale, sections 03 à 08
+
+- 03 Moteur : Float64, origine flottante, depth logarithmique, worker, six échelles avec coupure angulaire, ACES + bloom + FXAA/SMAA.
+- 04 Univers : Voie lactée, M31, M33, M51, M104, M87 et son jet, Nuages de Magellan, M42, M16, M1, Hélice, Soleil animé, huit planètes, Pluton, Charon, Cérès, lunes demandées, ceintures, Halley et 67P, Alpha Centauri, TRAPPIST-1, Kepler-186, Sirius, Bételgeuse, Rigel, Sgr A* et Cyg X-1 avec lentille, pulsar du Crabe.
+- 05 Patrimoine : ISS, Tiangong, Voyager 1 et 2, JWST, Hubble, Parker, New Horizons, Juno, Starlink, GPS, GEO, débris optionnels, trace au sol de l’ISS.
+- 06 Outils : Képler J2000, temps, orrery, comparateur, règle (km, UA, années-lumière, lumière, Voyager, 60 km/s).
+- 07 Vol : 6 DoF, vitesse logarithmique, warp, orbite / surface / poursuite, quatre visites, photo, Web Audio.
+- 08 HUD : verre, Ctrl+K, télémétrie, calques (orbites, trajectoires, trace, étiquettes, constellations, grilles écliptique et galactique, zone habitable, héliosphère, débris), presets, FPS et draw calls lus après le composer.
+
+Vérification : `tsc --noEmit` propre, build Vite propre, Chrome headless sans erreur de console ni de shader sur les vues ISS, Terre et Sgr A*.

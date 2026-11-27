@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { BODY_BY_ID, BODY_IDS, ORBIT_BY_ID, type BodyDef } from '../astro/catalog'
 import { CONSTELLATIONS, STARS } from '../astro/stars'
-import { BELT_STRIDE, displayRadius, readPos, sampleOrbit } from '../astro/ephemeris'
+import { BELT_STRIDE, displayRadius, helio as helioPos, readPos, sampleOrbit } from '../astro/ephemeris'
 import { AU, J2000, LY, TAU, raDecDir, raDecPos, spectralColor, v3, type V3 } from '../astro/math'
 import { CRAFT_BUILDERS, buildStarlinkSat } from './craft'
 import {
@@ -186,6 +186,10 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
       uCenter: { value: new THREE.Vector3(galC.x, galC.y, galC.z) },
       uEast: { value: new THREE.Vector3(galE.x, galE.y, galE.z) },
       uFade: { value: 1 },
+      uBH0: { value: new THREE.Vector3() },
+      uBH1: { value: new THREE.Vector3() },
+      uRs0: { value: 0 },
+      uRs1: { value: 0 },
     },
     vertexShader: skyVertex,
     fragmentShader: skyFragment,
@@ -228,7 +232,15 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
   starGeo.setAttribute('aColor', new THREE.BufferAttribute(col, 3))
   starGeo.setAttribute('aSize', new THREE.BufferAttribute(siz, 1))
   const starMat = new THREE.ShaderMaterial({
-    uniforms: { uWarp: { value: 0 }, uStreak: { value: new THREE.Vector2(0, 1) }, uDensity: { value: 1 } },
+    uniforms: {
+      uWarp: { value: 0 },
+      uStreak: { value: new THREE.Vector2(0, 1) },
+      uDensity: { value: 1 },
+      uBH0: { value: new THREE.Vector3() },
+      uBH1: { value: new THREE.Vector3() },
+      uRs0: { value: 0 },
+      uRs1: { value: 0 },
+    },
     vertexShader: starVertex,
     fragmentShader: starFragment,
     transparent: true,
@@ -258,7 +270,11 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
     catCol[i * 3 + 2] = c3.b
     catSize[i] = Math.max(1.4, 8.5 * Math.pow(10, -0.18 * s.mag))
   })
-  const catalog = new THREE.Points(catGeo, starMat.clone())
+  const catalogMat = starMat.clone()
+  for (const key of ['uBH0', 'uBH1', 'uRs0', 'uRs1', 'uWarp', 'uStreak', 'uDensity'] as const) {
+    catalogMat.uniforms[key] = starMat.uniforms[key]
+  }
+  const catalog = new THREE.Points(catGeo, catalogMat)
   catalog.frustumCulled = false
   root.add(catalog)
 
@@ -643,6 +659,46 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
   const grid = new THREE.PolarGridHelper(40 * AU, 8, 24, 64, '#3a4a66', '#243044')
   grid.rotation.x = Math.PI / 2
   root.add(grid)
+  const galGrid = new THREE.PolarGridHelper(700, 5, 12, 36, '#8a7344', '#4a3b28')
+  galGrid.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(galN.x, galN.y, galN.z))
+  galGrid.frustumCulled = false
+  root.add(galGrid)
+
+  const earthGroup = nodes.get('terre')?.group
+  const trackN = 181
+  const trackGeo = new THREE.BufferGeometry()
+  trackGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(trackN * 3), 3))
+  const groundTrack = new THREE.Line(
+    trackGeo,
+    new THREE.LineBasicMaterial({ color: '#f0c27a', transparent: true, opacity: 0.92 }),
+  )
+  groundTrack.frustumCulled = false
+  groundTrack.renderOrder = 2
+  earthGroup?.add(groundTrack)
+  const trackQ = new THREE.Quaternion()
+  const qTilt = new THREE.Quaternion()
+  const qSpin = new THREE.Quaternion()
+  const axisY = new THREE.Vector3(0, 1, 0)
+  const axisZ = new THREE.Vector3(0, 0, 1)
+  const relV = new THREE.Vector3()
+
+  const debrisN = 420
+  const debrisPos = new Float32Array(debrisN * 3)
+  const debrisGeo = new THREE.BufferGeometry()
+  debrisGeo.setAttribute('position', new THREE.BufferAttribute(debrisPos, 3))
+  const debrisPts = new THREE.Points(
+    debrisGeo,
+    new THREE.PointsMaterial({ color: '#ff6a4a', size: 18, sizeAttenuation: true, transparent: true, opacity: 0.85, depthWrite: false }),
+  )
+  debrisPts.frustumCulled = false
+  root.add(debrisPts)
+  const debrisEl = Array.from({ length: debrisN }, (_, i) => ({
+    alt: 350e3 + ((i * 97) % 900) * 1e3,
+    inc: ((i % 9) / 8) * 1.4 + 0.15,
+    node: (i * 0.37) % (Math.PI * 2),
+    phase: (i * 1.7) % (Math.PI * 2),
+    rate: 0.0011 + (i % 5) * 0.00015,
+  }))
 
   const dummy = new THREE.Object3D()
   const shellDummy = new THREE.Object3D()
@@ -936,6 +992,71 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
         arr[i] = x - cam64[0]
         arr[i + 1] = y - cam64[1]
         arr[i + 2] = z - cam64[2]
+      }
+      attr.needsUpdate = true
+    }
+
+    const sgr = nodes.get('sgr-a')
+    const cyg = nodes.get('cyg-x1')
+    if (sgr && cyg) {
+      const p0 = starMat.uniforms.uBH0.value as THREE.Vector3
+      const p1 = starMat.uniforms.uBH1.value as THREE.Vector3
+      p0.copy(sgr.group.position)
+      p1.copy(cyg.group.position)
+      const rs0 = (sgr.mat?.uniforms.uRs?.value as number) || 0
+      const rs1 = (cyg.mat?.uniforms.uRs?.value as number) || 0
+      starMat.uniforms.uRs0.value = rs0
+      starMat.uniforms.uRs1.value = rs1
+      ;(skyMat.uniforms.uBH0.value as THREE.Vector3).copy(p0)
+      ;(skyMat.uniforms.uBH1.value as THREE.Vector3).copy(p1)
+      skyMat.uniforms.uRs0.value = rs0
+      skyMat.uniforms.uRs1.value = rs1
+    }
+    groundTrack.visible = sim.layers.groundTrack
+    if (sim.layers.groundTrack) {
+      const attr = trackGeo.attributes.position as THREE.BufferAttribute
+      const arr = attr.array as Float32Array
+      const periodDays = (92.68 * 60) / 86400
+      const tilt = (23.439 * Math.PI) / 180
+      const sid = 86164.0905
+      for (let i = 0; i < trackN; i++) {
+        const t = sim.jd + (periodDays * i) / (trackN - 1)
+        helioPos('iss', t, tmp)
+        const ix = tmp.x
+        const iy = tmp.y
+        const iz = tmp.z
+        helioPos('terre', t, tmp)
+        const spin = ((t - J2000) * 86400 / sid) * TAU
+        qTilt.setFromAxisAngle(axisZ, tilt)
+        qSpin.setFromAxisAngle(axisY, spin)
+        trackQ.copy(qTilt).multiply(qSpin).invert()
+        relV.set(ix - tmp.x, iy - tmp.y, iz - tmp.z).applyQuaternion(trackQ).normalize().multiplyScalar(1.012)
+        arr[i * 3] = relV.x
+        arr[i * 3 + 1] = relV.y
+        arr[i * 3 + 2] = relV.z
+      }
+      attr.needsUpdate = true
+    }
+    galGrid.visible = sim.layers.galactic
+    debrisPts.visible = sim.layers.debris && Math.hypot(ex, ey, ez) < 6e7
+    if (debrisPts.visible) {
+      const er = displayRadius('terre')
+      const lift = er / 6.371e6
+      const attr = debrisGeo.attributes.position as THREE.BufferAttribute
+      const arr = attr.array as Float32Array
+      for (let i = 0; i < debrisN; i++) {
+        const el = debrisEl[i]
+        const ang = el.phase + years * el.rate * 800
+        const rad = er + el.alt * lift
+        const ci = Math.cos(el.inc)
+        const x = rad * Math.cos(ang) * ci
+        const z = rad * Math.sin(ang) * ci
+        const y = rad * Math.sin(el.inc) * Math.sin(ang)
+        const c = Math.cos(el.node)
+        const s = Math.sin(el.node)
+        arr[i * 3] = ex + x * c - z * s
+        arr[i * 3 + 1] = ey + y
+        arr[i * 3 + 2] = ez + x * s + z * c
       }
       attr.needsUpdate = true
     }

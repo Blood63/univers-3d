@@ -65,6 +65,11 @@ function Scene({ textures }: { textures: Record<string, THREE.Texture> }) {
     }
   }, [camera, gl, scene, textures])
 
+  const fpsWindow = useRef({ frames: 0, stamp: performance.now() })
+  useEffect(() => {
+    gl.info.autoReset = false
+  }, [gl])
+
   useFrame((_, dt) => {
     if (!sim.ready || !handle.current) return
     const w = gl.domElement.clientWidth
@@ -72,8 +77,21 @@ function Scene({ textures }: { textures: Record<string, THREE.Texture> }) {
     frame(dt, camera)
     handle.current.update(dt, camera, w, h)
     if (ca.current) ca.current.offset.set(sim.warp * 0.004, sim.warp * 0.001)
-    if (gl.info.render.calls > 1) sim.draws = gl.info.render.calls
   })
+
+  useFrame(() => {
+    sim.draws = gl.info.render.calls
+    const bucket = fpsWindow.current
+    bucket.frames += 1
+    const now = performance.now()
+    const elapsed = now - bucket.stamp
+    if (elapsed >= 400) {
+      sim.fps = (bucket.frames * 1000) / elapsed
+      bucket.frames = 0
+      bucket.stamp = now
+    }
+    gl.info.reset()
+  }, 2)
 
   const aa = sim.quality === 'ultra' ? 'smaa' : sim.quality === 'low' ? 'none' : 'fxaa'
   void tick

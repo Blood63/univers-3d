@@ -369,9 +369,40 @@ varying vec3 vColor;
 uniform float uWarp;
 uniform vec2 uStreak;
 uniform float uDensity;
+uniform vec3 uBH0;
+uniform vec3 uBH1;
+uniform float uRs0;
+uniform float uRs1;
+
+vec3 lensImage(vec3 rd) {
+  vec3 bh[2];
+  float rs[2];
+  bh[0] = uBH0; bh[1] = uBH1;
+  rs[0] = uRs0; rs[1] = uRs1;
+  for (int i = 0; i < 2; i++) {
+    float D = length(bh[i]);
+    if (D < 8.0 || rs[i] <= 0.0) continue;
+    vec3 b = bh[i] / D;
+    float cosT = clamp(dot(rd, b), -1.0, 1.0);
+    if (cosT < 0.25) continue;
+    float beta = acos(cosT);
+    if (beta > 0.85 || beta < 1e-4) continue;
+    float thetaE2 = 2.0 * rs[i] / D;
+    float theta = 0.5 * (beta + sqrt(beta * beta + 4.0 * thetaE2));
+    vec3 side = rd - b * cosT;
+    float sl = length(side);
+    if (sl < 1e-5) continue;
+    side /= sl;
+    rd = cos(theta) * b + sin(theta) * side;
+  }
+  return rd;
+}
+
 void main() {
   vColor = aColor;
-  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  vec3 rd = lensImage(normalize(position));
+  vec3 posL = rd * length(position);
+  vec4 mv = modelViewMatrix * vec4(posL, 1.0);
   gl_Position = projectionMatrix * mv;
   float dist = max(1.0, -mv.z);
   gl_PointSize = clamp(aSize * uDensity * (280.0 / dist), 1.0, 28.0);
@@ -520,13 +551,41 @@ uniform vec3 uNorth;
 uniform vec3 uCenter;
 uniform vec3 uEast;
 uniform float uFade;
+uniform vec3 uBH0;
+uniform vec3 uBH1;
+uniform float uRs0;
+uniform float uRs1;
+
+vec3 lensSource(vec3 o) {
+  vec3 bh[2];
+  float rs[2];
+  bh[0] = uBH0; bh[1] = uBH1;
+  rs[0] = uRs0; rs[1] = uRs1;
+  for (int i = 0; i < 2; i++) {
+    float D = length(bh[i]);
+    if (D < 8.0 || rs[i] <= 0.0) continue;
+    vec3 b = bh[i] / D;
+    float cosT = clamp(dot(o, b), -1.0, 1.0);
+    if (cosT < 0.2) continue;
+    float theta = acos(cosT);
+    if (theta > 0.7 || theta < 1e-4) continue;
+    float beta = theta - (2.0 * rs[i] / D) / theta;
+    beta = clamp(beta, -1.15, 1.15);
+    vec3 side = o - b * cosT;
+    float sl = length(side);
+    if (sl < 1e-5) continue;
+    side /= sl;
+    o = normalize(cos(beta) * b + sin(beta) * side);
+  }
+  return o;
+}
 float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float noise(vec2 p){
   vec2 i = floor(p); vec2 f = fract(p); vec2 u = f*f*(3.0-2.0*f);
   return mix(mix(hash(i), hash(i+vec2(1,0)), u.x), mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), u.x), u.y);
 }
 void main() {
-  vec3 d = normalize(vDir);
+  vec3 d = lensSource(normalize(vDir));
   float b = asin(clamp(dot(d, uNorth), -1.0, 1.0));
   float x = dot(d, uCenter);
   float y = dot(d, uEast);
