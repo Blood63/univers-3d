@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { proceduralFallback, registerTexture } from '../engine/texcache'
 
 const FILES: Record<string, string> = {
   sun: 'textures/sun.jpg',
@@ -19,11 +20,8 @@ const FILES: Record<string, string> = {
   pluto: 'textures/pluto.jpg',
 }
 
-function fallback(): THREE.DataTexture {
-  const t = new THREE.DataTexture(new Uint8Array([170, 170, 170, 255]), 1, 1)
-  t.needsUpdate = true
-  t.colorSpace = THREE.SRGBColorSpace
-  return t
+function fallback(key: string): THREE.Texture {
+  return proceduralFallback(key)
 }
 
 export function loadTextures(onProgress: (ratio: number) => void): Promise<Record<string, THREE.Texture>> {
@@ -43,6 +41,9 @@ export function loadTextures(onProgress: (ratio: number) => void): Promise<Recor
               t.anisotropy = 8
               t.wrapS = THREE.ClampToEdgeWrapping
               t.wrapT = THREE.ClampToEdgeWrapping
+              t.generateMipmaps = true
+              t.minFilter = THREE.LinearMipmapLinearFilter
+              registerTexture(key, base + file, t, 1024 * 1024 * 3)
               done += 1
               onProgress(done / entries.length)
               resolve([key, t])
@@ -51,7 +52,9 @@ export function loadTextures(onProgress: (ratio: number) => void): Promise<Recor
             () => {
               done += 1
               onProgress(done / entries.length)
-              resolve([key, fallback()])
+              const fb = fallback(key)
+              registerTexture(key, base + file, fb, 64 * 64 * 4)
+              resolve([key, fb])
             },
           )
         }),

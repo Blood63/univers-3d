@@ -8,6 +8,7 @@ import { bindInput, boot, frame } from './engine/runtime'
 import { sim } from './engine/state'
 import { createUniverse, type UniverseHandle } from './scene/world'
 import { loadTextures } from './scene/textures'
+import { applyAnisotropy } from './engine/texcache'
 
 const glBridge: { current: THREE.WebGLRenderer | null } = { current: null }
 export function capturePng(): void {
@@ -90,6 +91,8 @@ function Scene({ textures }: { textures: Record<string, THREE.Texture> }) {
       bucket.frames = 0
       bucket.stamp = now
     }
+    sim.tris = gl.info.render.triangles
+    sim.texCount = gl.info.memory.textures
     gl.info.reset()
   }, 2)
 
@@ -98,7 +101,7 @@ function Scene({ textures }: { textures: Record<string, THREE.Texture> }) {
   return (
     <>
       <EffectComposer multisampling={0} frameBufferType={THREE.HalfFloatType}>
-        <Bloom intensity={sim.bloom} luminanceThreshold={1.08} mipmapBlur luminanceSmoothing={0.22} radius={0.72} />
+        <Bloom intensity={sim.bloom} luminanceThreshold={1.14} mipmapBlur luminanceSmoothing={0.25} radius={0.68} />
         <ChromaticAberration ref={ca as never} offset={new THREE.Vector2(0, 0)} radialModulation modulationOffset={0.2} />
         {aa === 'smaa' ? <SMAA /> : <FXAA />}
         <Vignette eskil={false} offset={0.16} darkness={0.62} />
@@ -113,16 +116,33 @@ export default function App() {
   const [textures, setTextures] = useState<Record<string, THREE.Texture> | null>(null)
   const [progress, setProgress] = useState(0)
   const [dpr, setDpr] = useState(1)
-  const [ui, setUi] = useState(0)
+  const ui = 0
 
   useEffect(() => {
     let alive = true
     loadTextures((r) => alive && setProgress(r)).then((t) => alive && setTextures(t))
+    let lowFor = 0
+    let highFor = 0
     const id = window.setInterval(() => {
-      const want = Math.min(window.devicePixelRatio || 1, sim.quality === 'ultra' ? 1.75 : sim.quality === 'high' ? 1.4 : 1)
-      setDpr((prev) => (Math.abs(prev - want) > 0.05 ? want : prev))
-      setUi((n) => n + 1)
-    }, 250)
+      const cap = sim.quality === 'ultra' ? 1.5 : sim.quality === 'high' ? 1.25 : sim.quality === 'medium' ? 1 : 0.9
+      const floor = sim.quality === 'low' ? 0.75 : 0.85
+      if (sim.fps > 0 && sim.fps < 55) {
+        lowFor += 0.5
+        highFor = 0
+      } else if (sim.fps > 70) {
+        highFor += 0.5
+        lowFor = 0
+      }
+      if (lowFor >= 2) {
+        sim.dprBias = Math.max(floor / cap, sim.dprBias * 0.85)
+        lowFor = 0
+      } else if (highFor >= 2) {
+        sim.dprBias = Math.min(1, sim.dprBias * 1.08)
+        highFor = 0
+      }
+      const want = Math.min(window.devicePixelRatio || 1, cap) * sim.dprBias
+      setDpr((prev) => (Math.abs(prev - want) > 0.04 ? want : prev))
+    }, 500)
     return () => {
       alive = false
       window.clearInterval(id)
@@ -153,8 +173,12 @@ export default function App() {
             alpha: false,
           }}
           camera={{ fov: 58, near: 0.08, far: 1e32, position: [0, 0, 0] }}
-          onCreated={({ gl }) => {
+          onCreated={({ gl, scene, camera }) => {
             gl.setClearColor('#000005')
+            if (textures) applyAnisotropy(textures, gl.capabilities.getMaxAnisotropy())
+            const renderer = gl as THREE.WebGLRenderer & { compileAsync?: (s: THREE.Scene, c: THREE.Camera) => Promise<void> }
+            if (renderer.compileAsync) void renderer.compileAsync(scene, camera)
+            else renderer.compile(scene, camera)
           }}
         >
           <Suspense fallback={null}>

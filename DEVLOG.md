@@ -273,6 +273,155 @@ La grille galactique (plan orienté vers le pôle galactique, centrée sur la ca
 
 Vérification : `tsc --noEmit` propre, build Vite propre, Chrome headless sans erreur de console ni de shader sur les vues ISS, Terre et Sgr A*.
 
+## V2 — expansion cosmique (1 m → 46,5 Gal)
+
+Base mesurée sur `main` avant cette branche (build Vite 2,93 s, script 1 279 900 octets). Mesures « après » : build Vite 2,81 s, script 1 320 772 octets. Les FPS ci-dessous sont ceux de Chrome headless SwiftShader, pas d’un GPU de bureau : ils restent bas (quelques images à quelques dizaines). Le budget de draw calls, lui, est tenu sur le préréglage Élevé.
+
+| Vue | FPS (SwiftShader) | Draw calls |
+| --- | --- | --- |
+| Système solaire | ~3–13 | 122 |
+| ISS | ~10–11 | 34 |
+| Terre | ~14 | 49 |
+| Saturne | ~11–15 | 103 |
+| Voyager 1 | ~5 | 30 |
+| Sagittarius A* | ~5 | 51 |
+| Andromède | ~5 | 36 |
+| Fond diffus | ~3–4 | 78 |
+
+Zéro `pageerror`, zéro erreur console, zéro shader sur ces huit vues. La vue aérienne, R, le cadrage sans verrouillage et l’arrêt du suivi au panoramique ont été rejoués.
+
+### Phase 1 — Audit et zéro allocation
+
+Avant : script 1,28 Mo, une allocation `Object.keys` et un `v3()` à chaque frame sur le calcul de L2, un `clone()` de vecteur sur les comètes.
+
+Après : mêmes ordres de FPS SwiftShader, draw calls système ramenés ensuite sous 140 (phase 11).
+
+Défauts corrigés
+
+1. `updateNearest` recréait la liste des identifiants à chaque image.
+2. Le placement L2 (JWST) allouait un vecteur « up » à chaque frame.
+3. Les queues de comètes clonaient la position du Soleil et un point de visée à chaque image.
+
+Le HUD se rafraîchit à 12,5 Hz (80 ms). Les textures NASA passent par un cache qui les décharge au-delà d’environ 1 800 al et les recharge au retour dans le système.
+
+### Phase 2 — Dix échelles
+
+`echelleOf` découpe 1 m → 46,5 Gal (E1 à E10). L’ancienne bande (sonde, planétaire, système…) reste dérivée, pour ne pas casser les calques. Le fil d’Ariane et la jauge lisent E1–E10. Les galaxies, nébuleuses, le nuage d’Oort et la toile sont placés sur la coquille de rendu : le GPU ne voit jamais un `float32` à 10²⁴ m.
+
+Défauts corrigés
+
+1. Un `dt` utile trop court n’est pas revenu : le plafond 0,1 s de la vue aérienne est conservé.
+2. Les nébuleuses (26 sprites chacune) restaient dessinées dans le système solaire : elles ne s’allument qu’à partir de E5, sauf sélection.
+3. Les trajectoires interstellaires en `float32` barraient la vue ISS : elles sont masquées sous E3.
+
+### Phase 3 — Micro-détails
+
+Bruit 3D sur la sphère (pas de couture UV) quand la caméra passe sous trois rayons : normale et rugosité. Oren-Nayar sur Mercure et la Lune. Anneaux : profil D, C, B, Cassini, A, Encke, F, et scintillement de glace en vue très proche. Anisotropie au maximum du GPU, mipmaps trilinéaires.
+
+Défauts corrigés
+
+1. La perturbation de normale à 0,55 donnait un damier sur la Terre : ramenée à 0,22.
+2. Hauméa n’avait pas d’anneau fin : flag `rings-thin`, rayons 1,42–1,72.
+3. Japet n’avait pas d’hémisphère sombre : uniforme `uTwoTone`.
+
+### Phase 4 — Atmosphères et Soleil
+
+Le shader d’atmosphère Rayleigh/Mie est inchangé dans sa structure et sert toujours Vénus, Mars, Titan et la Terre. Le Soleil garde granulation, taches et protubérances. Le bloom ACES passe le seuil de 1,08 à 1,14 pour moins laver les limbes. Vénus a un défilement de texture (super-rotation). Un repli procédural remplace une texture NASA qui échoue.
+
+Défauts corrigés
+
+1. Le chargement d’une texture en échec renvoyait un gris 1×1.
+2. L’anisotropie était figée à 8, sous le maximum du GPU.
+3. Aucun fondu de texture au retour d’une session lointaine : le rechargement est branché sur les matériaux.
+
+### Phase 5 — Système solaire profond
+
+Éris et Dysnomie, Hauméa (ellipsoïde + anneau), Makémaké, Sedna (orbite jusqu’à ~937 UA), Arrokoth (bilobe). Lunes : Phobos, Deimos, Mimas, Japet, Rhéa, Dioné, Miranda, Ariel, Obéron. Héliopause déformée (choc terminal à 90 UA, enveloppe à 120 UA). Nuage d’Oort instancié entre 2 000 et 50 000 UA, calque dédié.
+
+Défauts corrigés
+
+1. Sedna sur une ligne d’orbite en `float32` était instable : l’orbite reste calculée, le tracé écran est omis.
+2. L’héliosphère était une sphère : échelles 1,08 / 0,84 / 1,55, allongée dans le vent.
+3. Le calque héliosphère ne montrait pas le choc terminal.
+
+### Phase 6 — Étoiles, nébuleuses, amas
+
+Quinze étoiles ajoutées (Barnard, Wolf 359, ε Eridani, τ Ceti, Véga, Arcturus, Aldébaran, Antarès, η Carinae, VY CMa, UY Scuti, Polaris, 51 Peg, HD 189733, 55 Cnc) et trois planètes (51 Peg b, HD 189733 b, 55 Cnc e). Nébuleuses : Carène, Anneau M57, Œil de Chat, Pléiades. Amas : Oméga du Centaure et M13, chacun en nuage de points. Secteurs stellaires déterministes autour de la caméra en E5–E7.
+
+Défauts corrigés
+
+1. Le secteur stellaire réécrivait ses positions monde dans le buffer GPU et les perdait : deux tableaux, monde en Float64 et écran en Float32.
+2. Une grille 361³ pour la toile a été abandonnée avant de geler le chargement (remplacée par des filaments directs, phase 8).
+3. Les étoiles lointaines gardaient un halo forcé à 2 % de la distance : le halo suit maintenant la taille angulaire réelle.
+
+### Phase 7 — Extragalactique
+
+M32, M110, NGC 6822, Antennes (queue de marée), Centaurus A (bande de poussière + jet), Roue de Chariot, M101, Laniakea, Grand Attracteur, Persée-Poissons, Coma, Shapley. Le jet de M87 est celui de la v1, conservé.
+
+Défauts corrigés
+
+1. Les galaxies « vides » et l’horizon CMB auraient eu un disque plein : échelle du mesh ramenée à 0,15.
+2. Le courant magellanique n’existait pas : un segment LMC–SMC en E6–E7.
+3. Centaurus A n’avait pas de bande sombre : un plan local sur le flag `dustlane`.
+
+### Phase 8 — Toile et fond diffus
+
+Filaments instanciés (quelques milliers de galaxies de champ, elliptiques dorées au cœur des brins, spirales plus bleues), visibles à partir de E8. Étiquettes : Vide du Bouvier, Supervide de l’Éridan, Grand Mur de Sloan, Grand Mur d’Hercule-Couronne. Sphère CMB, shader d’anisotropies, fondu au-delà d’environ 8 milliards d’années-lumière, pleine vers 46,5 Gal.
+
+Défauts corrigés
+
+1. Le premier essai de toile parcourait une grille cubique inutilisable au démarrage.
+2. Les positions en Gly ne tiennent pas dans un `float32` : coquille de rendu, comme pour M31.
+3. La sphère CMB compilait sans les en-têtes `logdepthbuf` : les `include` three.js ont été ajoutés.
+
+### Phase 9 — Patrimoine
+
+Feux de navigation nommés, clignotement sur l’ISS et les autres engins qui en ont. Disque d’or de Voyager avec un sillon. Bouclier de Parker émissif sous 0,28 UA. Nouveaux modèles : Gaia, Euclid (L2), Pioneer 10 et 11, Cassini, Rosetta (près de 67P), Gateway (NRHO), Apollo 11 sur la Lune. Le cadrage de chaque engin a un offset, pour ne pas naître dans la coque.
+
+Défauts corrigés
+
+1. Les nouveaux engins tombaient sur l’offset nul et la caméra entrait dans le mesh.
+2. Apollo 11 était écrit dans le tampon temporaire de l’éphéméride, qui sert aussi au parent : la Lune était écrasée. Le résultat est écrit dans le tampon de sortie.
+3. Pioneer n’avait pas de trajectoire dans le worker : deux polylignes de plus.
+
+### Phase 10 — HUD
+
+Fil d’Ariane cliquable (Univers observable → … → l’astre le plus proche). Jauge logarithmique verticale, 5 m → 46,5 Gal, qui pose la distance aérienne sans verrouiller. Visites « Puissances de Dix » et « Exoplanètes et géantes ». Profil repliable : FPS, temps de frame, draw calls, triangles, textures, objets actifs, qualité, biais de DPR. R et « Vue Système Solaire » inchangés. Le suivi s’éteint toujours au panoramique.
+
+Défauts corrigés
+
+1. Le sélecteur de mode et le fil d’Ariane se faisaient recouvrir par les étiquettes : le pied de page et le fil sont au-dessus.
+2. Le compteur ne montrait pas les triangles ni les textures du compositeur : lecture après le `EffectComposer`, priorité 2.
+3. La jauge ne pouvait pas traverser les échelles : `setAltitude` pose pivot et distance, sans suivi.
+
+### Phase 11 — Non-régression
+
+`tsc --noEmit` et `vite build` propres. Huit vues critiques sans erreur WebGL. Draw calls Élevé : système 122, ISS 34, Terre 49, Saturne 103, Voyager 30, Sgr A* 51, M31 36, CMB 78. Trace ISS ambrée toujours présente sur la vue rapprochée. Lentille Sgr A* / Cyg X-1 inchangée (aucun shader d’étoile retiré). DPR dynamique : si les FPS restent sous 55 pendant 2 s, le biais baisse jusqu’à 0,75 ; il remonte au-dessus de 70. Le préréglage Mobile reste forcé sur pointeur grossier.
+
+Défauts corrigés
+
+1. Les sprites de nébuleuse comptaient pour plus de cent appels dans la vue système.
+2. Les engins lointains gardaient toute leur géométrie : ils disparaissent sous 1,3 px, sauf la cible.
+3. Le cadrage Terre après warp restait à ~19 200 km, suivi faux, et la touche D coupait le suivi : rejoué après la v2.
+
+### Phase 12 — Six cycles de polish
+
+1. Photométrie : seuil de bloom 1,14, rayon un peu plus serré, pour laisser les bandes de Saturne et le limbe terrestre.
+2. Transitions : opacité de l’Oort, de la toile et du CMB en fonction de l’échelle, pas un interrupteur sec.
+3. Micro-détails : normale adoucie, Oren-Nayar, deux tons de Japet, anneau de Hauméa.
+4. Caméra : portée du panoramique = minimum entre l’altitude et huit fois la distance à l’astre le plus proche, pour rester précis près d’une planète. Amortissement exponentiel inchangé.
+5. Étiquettes : une liste selon l’échelle, et rejet si deux pastilles sont à moins de 28 px (la sélection garde la sienne).
+6. Build de production : `base` `/univers-3d/` inchangé, `tsc` et `vite build` propres, zéro erreur console sur les vues critiques.
+
+### Écarts assumés
+
+- Le 60–144 FPS n’a pas été mesuré sur un GPU de bureau. Cette machine n’a que SwiftShader. Les draw calls, eux, sont sous 140 (système) et sous 65 (ISS) au préréglage Élevé.
+- Pas de nouvelles cartes USGS multi-gigapixels : les cartes déjà versionnées restent la couche HD, le micro-détail est procédural, et le repli procédural couvre un échec réseau.
+- Les ombres mutuelles Io / Europe / Ganymède sur Jupiter ne sont pas calculées. Les ombres anneaux ↔ globe de Saturne le sont.
+- Hauméa est un ellipsoïde par échelle de mesh, pas une vraie surface triaxiale.
+- Le nuage d’Oort et la toile sont des champs instanciés, pas des corps sélectionnables un par un. Les structures nommées (vides, murs, Laniakea) le sont.
+- Le fondu du CMB est une anisotropie procédurale rappelant Planck, pas le fichier HEALPix officiel.
+
 ## Navigation — vue aérienne libre
 
 La caméra ne se verrouille plus sur un astre. Le mode par défaut au lancement est une vue carte, du même genre qu’un globe ou une carte de stratégie : un pivot, une distance, un cap et une inclinaison.

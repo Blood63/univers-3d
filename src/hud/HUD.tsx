@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { BODY_BY_ID, BODY_IDS, TOURS, type Category } from '../astro/catalog'
-import { AU, C, LY, YEAR, formatDateUTC, formatDist, formatDuration, formatSpeed, jdToDate, dateToJD, BAND_LABEL } from '../astro/math'
+import { AU, C, LY, YEAR, formatDateUTC, formatDist, formatDuration, formatSpeed, jdToDate, dateToJD } from '../astro/math'
+import { ECHELLE_LABEL, altitudeToSlider, breadcrumbs, sliderToAltitude } from '../astro/scales'
 import { readPos } from '../astro/ephemeris'
 import { capturePng } from '../App'
 import { applyMute, resumeAudio } from '../engine/audio'
-import { beginWarp, refreshBelts, setNav, startTour, stopTour, toggleFollow, toggleScale, viewSolarSystem } from '../engine/runtime'
+import { beginWarp, focusBody, refreshBelts, setAltitude, setNav, startTour, stopTour, toggleFollow, toggleScale, viewSolarSystem } from '../engine/runtime'
 import { QUALITY_PRESET, labelFrame, sim, type Quality } from '../engine/state'
 import { v3 } from '../astro/math'
 import { Comparator } from './Comparator'
@@ -31,7 +32,7 @@ const SCALES: { label: string; value: number }[] = [
   { label: '1 siècle/s', value: 86400 * 365.25 * 100 },
 ]
 
-function useTick(ms = 120) {
+function useTick(ms = 80) {
   const [n, setN] = useState(0)
   useEffect(() => {
     const id = window.setInterval(() => setN((v) => v + 1), ms)
@@ -103,7 +104,7 @@ export function HUD({ nonce }: { nonce: number }) {
             </div>
             <div className="glass rounded-2xl px-4 py-3">
               <div className="text-[10px] tracking-[0.18em] text-white/45">ÉCHELLE</div>
-              <div>{BAND_LABEL[sim.band]}</div>
+              <div>{ECHELLE_LABEL[sim.echelle] ?? sim.band}</div>
               <div className="mono text-[11px] text-[#f0c27a]">
                 {sim.scaleMode === 'real' ? 'Réelle' : 'Orrery'} · {formatSpeed(sim.speed)}
               </div>
@@ -114,10 +115,49 @@ export function HUD({ nonce }: { nonce: number }) {
             <button className="hud-btn" onClick={() => (sim.search = true)}>
               Ctrl+K
             </button>
-            <div className="glass mono rounded-full px-3 py-2 text-[11px]">
+            <button className="glass mono rounded-full px-3 py-2 text-[11px]" onClick={() => (sim.profileOpen = !sim.profileOpen)}>
               {Math.round(sim.fps)} fps · {sim.draws} dc
-            </div>
+            </button>
           </div>
+          {sim.profileOpen && (
+            <div className="pointer-events-auto glass absolute right-4 top-16 w-56 rounded-2xl p-3 mono text-[11px] leading-relaxed">
+              <div>FPS {sim.fps.toFixed(1)}</div>
+              <div>Frame {sim.frameMs.toFixed(2)} ms</div>
+              <div>Draw calls {sim.draws}</div>
+              <div>Triangles {sim.tris.toLocaleString('fr-FR')}</div>
+              <div>Textures {sim.texCount}</div>
+              <div>Objets actifs {sim.activeBodies}</div>
+              <div>Qualité {sim.quality}</div>
+              <div>DPR ×{sim.dprBias.toFixed(2)}</div>
+            </div>
+          )}
+          <nav className="pointer-events-auto absolute left-1/2 top-4 z-30 flex max-w-[70vw] -translate-x-1/2 flex-wrap justify-center gap-1">
+            {breadcrumbs(sim.nearestId, sim.echelle).map((c, i, arr) => (
+              <button
+                key={c.id}
+                className="hud-btn"
+                onClick={() => {
+                  if (c.id === 'sys' || (c.target === 'soleil' && c.id === 'orion')) viewSolarSystem()
+                  else focusBody(c.target)
+                }}
+              >
+                {c.label}
+                {i < arr.length - 1 ? ' ›' : ''}
+              </button>
+            ))}
+          </nav>
+          <label className="pointer-events-auto absolute right-3 top-1/2 z-30 flex -translate-y-1/2 flex-col items-center gap-2">
+            <span className="text-[10px] tracking-[0.14em] text-white/50">46 Gal</span>
+            <input
+              type="range"
+              min={0}
+              max={1000}
+              value={Math.round(altitudeToSlider(Math.max(sim.altitude, 5)) * 1000)}
+              onChange={(e) => setAltitude(sliderToAltitude(Number(e.target.value) / 1000))}
+              style={{ writingMode: 'vertical-lr', direction: 'rtl', height: '42vh' }}
+            />
+            <span className="text-[10px] tracking-[0.14em] text-white/50">1 m</span>
+          </label>
 
           <aside className="pointer-events-auto absolute left-4 top-36 hidden w-52 md:block">
             <div className="glass rounded-2xl p-3">
@@ -133,6 +173,8 @@ export function HUD({ nonce }: { nonce: number }) {
                   ['galactic', 'Grille galactique'],
                   ['habitable', 'Zone habitable'],
                   ['heliosphere', 'Héliosphère'],
+                  ['oort', 'Nuage d’Oort'],
+                  ['cosmicWeb', 'Toile cosmique'],
                   ['debris', 'Débris'],
                 ] as const
               ).map(([key, label]) => (
