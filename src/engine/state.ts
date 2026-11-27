@@ -1,7 +1,7 @@
 import { dateToJD, type ScaleBand } from '../astro/math'
 
 export type Quality = 'low' | 'medium' | 'high' | 'ultra'
-export type CamMode = 'freefly' | 'orbit' | 'surface' | 'chase'
+export type CamMode = 'aerial' | 'freefly'
 export type ScaleMode = 'real' | 'orrery'
 export type Layout = 'azerty' | 'qwerty'
 
@@ -38,7 +38,8 @@ export const sim = {
   quality: 'high' as Quality,
   mobile: false,
   layout: 'azerty' as Layout,
-  mode: 'freefly' as CamMode,
+  mode: 'aerial' as CamMode,
+  follow: false,
   target: 'iss',
   selected: 'iss',
   fov: 58,

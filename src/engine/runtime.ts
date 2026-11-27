@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { BODY_BY_ID, TOURS } from '../astro/catalog'
 import { displayRadius, initEphemeris, readPos, realRadius, writeDisplay, writeWorld } from '../astro/ephemeris'
 import { BODY_INDEX } from '../astro/catalog'
-import { J2000, TAU, bandOf, clamp, smoother, v3, type V3 } from '../astro/math'
+import { AU, J2000, TAU, bandOf, clamp, smoother, v3, type V3 } from '../astro/math'
 import { blip, ensureAudio, resumeAudio, setRadio } from './audio'
 import { cam64, detectMobile, sim, type CamMode } from './state'
 
@@ -35,6 +35,21 @@ let pitch = -0.25
 let roll = 0
 let rollVel = 0
 let prevCam = v3()
+
+const pivot = { x: 0, y: 0, z: 0 }
+const targetPivot = { x: 0, y: 0, z: 0 }
+let airDist = 42 * AU
+let targetDist = 42 * AU
+let airYaw = 0.45
+let targetAirYaw = 0.45
+let airTilt = 1.08
+let targetAirTilt = 1.08
+let dragPanX = 0
+let dragPanY = 0
+let dragOrbitX = 0
+let dragOrbitY = 0
+let wheelZoom = 0
+const MIN_ALT = 0.25
 
 interface Warp {
   t: number
@@ -174,7 +189,7 @@ function craftOffset(id: string, into: THREE.Vector3): THREE.Vector3 {
   }
 }
 
-function lookToward(from: V3, to: V3, up: V3 = { x: 0, y: 1, z: 0 }): void {
+function lookOnly(from: V3, to: V3, up: V3 = { x: 0, y: 1, z: 0 }): void {
   zA.set(from.x - to.x, from.y - to.y, from.z - to.z)
   if (zA.lengthSq() < 1e-12) zA.set(0, 0, 1)
   zA.normalize()
@@ -184,10 +199,147 @@ function lookToward(from: V3, to: V3, up: V3 = { x: 0, y: 1, z: 0 }): void {
   yA.crossVectors(zA, xA).normalize()
   m4.makeBasis(xA, yA, zA)
   camQuat.setFromRotationMatrix(m4)
+}
+
+function lookToward(from: V3, to: V3, up: V3 = { x: 0, y: 1, z: 0 }): void {
+  lookOnly(from, to, up)
   euler.setFromQuaternion(camQuat, 'YXZ')
   yaw = euler.y
   pitch = clamp(euler.x, -1.45, 1.45)
   roll = euler.z
+}
+
+function placeAerial(): void {
+  const c = Math.cos(airTilt)
+  const s = Math.sin(airTilt)
+  const ox = Math.cos(airYaw) * airDist * c
+  const oy = airDist * s
+  const oz = Math.sin(airYaw) * airDist * c
+  putCam(pivot.x + ox, pivot.y + oy, pivot.z + oz)
+  lookOnly({ x: cam64[0], y: cam64[1], z: cam64[2] }, pivot)
+}
+
+function damp(current: number, target: number, dt: number, rate: number): number {
+  return current + (target - current) * (1 - Math.exp(-dt * rate))
+}
+
+function dampAngle(current: number, target: number, dt: number, rate: number): number {
+  let d = target - current
+  while (d > Math.PI) d -= TAU
+  while (d < -Math.PI) d += TAU
+  return current + d * (1 - Math.exp(-dt * rate))
+}
+
+function syncAerialTargets(): void {
+  targetPivot.x = pivot.x
+  targetPivot.y = pivot.y
+  targetPivot.z = pivot.z
+  targetDist = airDist
+  targetAirYaw = airYaw
+  targetAirTilt = airTilt
+}
+
+function adoptAerial(id: string, follow: boolean): void {
+  readPos(id, pB, true)
+  const dx = cam64[0] - pB.x
+  const dy = cam64[1] - pB.y
+  const dz = cam64[2] - pB.z
+  const d = Math.hypot(dx, dy, dz)
+  airDist = Math.max(d, MIN_ALT)
+  const horiz = Math.hypot(dx, dz)
+  airTilt = clamp(horiz < 1e-6 ? Math.PI / 2 - 0.04 : Math.atan2(dy, horiz), 0.04, Math.PI / 2 - 0.01)
+  if (horiz > 1e-4) airYaw = Math.atan2(dz, dx)
+  pivot.x = pB.x
+  pivot.y = pB.y
+  pivot.z = pB.z
+  syncAerialTargets()
+  sim.mode = 'aerial'
+  sim.follow = follow
+  sim.target = id
+  sim.selected = id
+  placeAerial()
+}
+
+function desiredCamera(id: string, out: V3): V3 {
+  readPos(id, pB, true)
+  const off = craftOffset(id, offV)
+  if (off.lengthSq() > 0 && (BODY_BY_ID[id].kind === 'craft' || BODY_BY_ID[id].kind === 'constellation')) {
+    bodyQuaternion(id, qTmp)
+    xA.copy(off).applyQuaternion(qTmp)
+    out.x = pB.x + xA.x
+    out.y = pB.y + xA.y
+    out.z = pB.z + xA.z
+    return out
+  }
+  if (BODY_BY_ID[id].kind === 'galaxy') {
+    const d = Math.max(BODY_BY_ID[id].approach, displayRadius(id) * 2.4)
+    out.x = pB.x + d * 0.34
+    out.y = pB.y + d * 0.62
+    out.z = pB.z + d * 0.46
+    return out
+  }
+  if (BODY_BY_ID[id].kind === 'nebula') {
+    const d = BODY_BY_ID[id].approach * 0.55
+    out.x = pB.x + d * 0.2
+    out.y = pB.y + d * 0.25
+    out.z = pB.z + d * 0.85
+    return out
+  }
+  const r = displayRadius(id)
+  const d = sim.scaleMode === 'orrery' ? Math.max(r * 4.4, 40) : Math.max(Math.min(BODY_BY_ID[id].approach, r * 18), r * 2.8)
+  out.x = pB.x + d * 0.46
+  out.y = pB.y + d * 0.42
+  out.z = pB.z + d * 0.72
+  return out
+}
+
+export function viewSolarSystem(): void {
+  readPos('soleil', pB, true)
+  pivot.x = targetPivot.x = pB.x
+  pivot.y = targetPivot.y = pB.y
+  pivot.z = targetPivot.z = pB.z
+  airDist = targetDist = 42 * AU
+  airTilt = targetAirTilt = 1.08
+  airYaw = targetAirYaw = 0.45
+  sim.mode = 'aerial'
+  sim.follow = false
+  sim.warpActive = false
+  sim.warp = 0
+  warp = null
+  sim.target = 'soleil'
+  placeAerial()
+  blip(440)
+}
+
+export function toggleFollow(): void {
+  if (!sim.selected || !BODY_BY_ID[sim.selected]) return
+  sim.follow = !sim.follow
+  if (sim.follow) {
+    sim.mode = 'aerial'
+    readPos(sim.selected, pB, true)
+    targetPivot.x = pB.x
+    targetPivot.y = pB.y
+    targetPivot.z = pB.z
+  }
+  blip(520)
+}
+
+export function setNav(mode: 'aerial' | 'freefly'): void {
+  if (mode === 'aerial' && sim.mode !== 'aerial') {
+    const ahead = Math.max(sim.nearestGap, 30)
+    basisZ.set(0, 0, -1).applyQuaternion(camQuat)
+    pivot.x = cam64[0] + basisZ.x * ahead
+    pivot.y = cam64[1] + basisZ.y * ahead
+    pivot.z = cam64[2] + basisZ.z * ahead
+    airDist = ahead
+    airTilt = 0.7
+    airYaw = Math.atan2(pivot.z - cam64[2], pivot.x - cam64[0])
+    syncAerialTargets()
+    placeAerial()
+  }
+  sim.mode = mode
+  if (mode === 'freefly') sim.follow = false
+  blip(440)
 }
 
 function applyEuler(): void {
@@ -201,21 +353,9 @@ export function focusBody(id: string, instant = false): void {
   sim.selected = id
   sim.target = id
   if (instant) {
-    const off = craftOffset(id, offV)
-    readPos(id, pA, true)
-    if (off.lengthSq() > 0) {
-      bodyQuaternion(id, qTmp)
-      xA.copy(off).applyQuaternion(qTmp)
-      putCam(pA.x + xA.x, pA.y + xA.y, pA.z + xA.z)
-    } else {
-      const r = displayRadius(id)
-      const d = sim.scaleMode === 'orrery' ? Math.max(r * 4.2, 30) : Math.max(BODY_BY_ID[id].approach, r * 3.2)
-      putCam(pA.x + d * 0.42, pA.y + d * 0.38, pA.z + d * 0.78)
-    }
-    readPos(id, pB, true)
-    lookToward({ x: cam64[0], y: cam64[1], z: cam64[2] }, pB)
-    sim.mode = BODY_BY_ID[id].kind === 'craft' ? 'chase' : 'orbit'
-    sim.orbitDist = Math.hypot(cam64[0] - pB.x, cam64[1] - pB.y, cam64[2] - pB.z)
+    desiredCamera(id, pA)
+    putCam(pA.x, pA.y, pA.z)
+    adoptAerial(id, false)
     sim.warpActive = false
     warp = null
     sim.warp = 0
@@ -232,33 +372,10 @@ export function beginWarp(id: string): void {
   sim.target = id
   readPos(id, pB, true)
   const startQuat = camQuat.clone()
-  const off = craftOffset(id, offV)
-  let tx: number
-  let ty: number
-  let tz: number
-  if (off.lengthSq() > 0 && (BODY_BY_ID[id].kind === 'craft' || BODY_BY_ID[id].kind === 'constellation')) {
-    bodyQuaternion(id, qTmp)
-    xA.copy(off).applyQuaternion(qTmp)
-    tx = pB.x + xA.x
-    ty = pB.y + xA.y
-    tz = pB.z + xA.z
-  } else if (BODY_BY_ID[id].kind === 'galaxy') {
-    const d = Math.max(BODY_BY_ID[id].approach, displayRadius(id) * 2.4)
-    tx = pB.x + d * 0.34
-    ty = pB.y + d * 0.62
-    tz = pB.z + d * 0.46
-  } else if (BODY_BY_ID[id].kind === 'nebula') {
-    const d = BODY_BY_ID[id].approach * 0.55
-    tx = pB.x + d * 0.2
-    ty = pB.y + d * 0.25
-    tz = pB.z + d * 0.85
-  } else {
-    const r = displayRadius(id)
-    const d = sim.scaleMode === 'orrery' ? Math.max(r * 4.4, 40) : Math.max(BODY_BY_ID[id].approach, r * 3.3)
-    tx = pB.x + d * 0.46
-    ty = pB.y + d * 0.34
-    tz = pB.z + d * 0.72
-  }
+  desiredCamera(id, pA)
+  const tx = pA.x
+  const ty = pA.y
+  const tz = pA.z
   const dist = Math.hypot(tx - cam64[0], ty - cam64[1], tz - cam64[2])
   const dur = clamp(2.35 + Math.log10(dist + 10) * 0.28, 2.5, 8)
   lookToward({ x: tx, y: ty, z: tz }, pB)
@@ -277,28 +394,12 @@ export function beginWarp(id: string): void {
   }
   camQuat.copy(startQuat)
   sim.warpActive = true
-  sim.mode = 'freefly'
+  sim.follow = false
   if (sim.tourId) sim.tourWarping = true
 }
 
 export function setMode(mode: CamMode): void {
-  sim.mode = mode
-  if (!sim.target) return
-  readPos(sim.target, pB, true)
-  const dx = cam64[0] - pB.x
-  const dy = cam64[1] - pB.y
-  const dz = cam64[2] - pB.z
-  sim.orbitDist = Math.max(Math.hypot(dx, dy, dz), displayRadius(sim.target) * 1.2)
-  sim.orbitYaw = Math.atan2(dx, dz)
-  sim.orbitPitch = Math.asin(clamp(dy / (sim.orbitDist || 1), -1, 1))
-  if (mode === 'surface') {
-    bodyQuaternion(sim.target, qTmp)
-    xA.set(dx, dy, dz).applyQuaternion(qTmp.invert())
-    sim.surfaceRight = xA.x
-    sim.surfaceUp = xA.y
-    sim.surfaceAlt = xA.z
-  }
-  blip(440)
+  setNav(mode)
 }
 
 function stepFly(dt: number): void {
@@ -339,66 +440,60 @@ function stepFly(dt: number): void {
   cam64[2] += vel.z * dt
 }
 
-function stepOrbit(dt: number): void {
-  sim.orbitYaw -= sim.lookX * 0.005 + sim.dragX * 0.005
-  sim.orbitPitch = clamp(sim.orbitPitch - sim.lookY * 0.004 - sim.dragY * 0.004, -1.35, 1.35)
-  sim.lookX = sim.lookY = sim.dragX = sim.dragY = 0
-  const wheelKeys = (sim.keys.has(azertyForward()) ? 1 : 0) - (sim.keys.has('KeyS') ? 1 : 0)
-  if (wheelKeys) sim.orbitDist *= Math.exp(-wheelKeys * dt * 0.85)
-  const minD = displayRadius(sim.target) * 1.15 + (BODY_BY_ID[sim.target]?.kind === 'craft' ? 4 : 0)
-  sim.orbitDist = Math.max(minD, sim.orbitDist)
-  readPos(sim.target, pB, true)
-  const cp = Math.cos(sim.orbitPitch)
-  const ox = Math.sin(sim.orbitYaw) * cp * sim.orbitDist
-  const oy = Math.sin(sim.orbitPitch) * sim.orbitDist
-  const oz = Math.cos(sim.orbitYaw) * cp * sim.orbitDist
-  putCam(pB.x + ox, pB.y + oy, pB.z + oz)
-  lookToward({ x: cam64[0], y: cam64[1], z: cam64[2] }, pB)
-  vel.x = vel.y = vel.z = 0
-  void dt
-}
-
 function azertyForward(): string {
   return sim.layout === 'azerty' ? 'KeyZ' : 'KeyW'
 }
 
-function stepSurface(dt: number): void {
-  bodyQuaternion(sim.target, qTmp)
-  const move = (sim.keys.has(azertyForward()) ? 1 : 0) - (sim.keys.has('KeyS') ? 1 : 0)
-  const side = (sim.keys.has('KeyD') ? 1 : 0) - (sim.keys.has(sim.layout === 'azerty' ? 'KeyQ' : 'KeyA') ? 1 : 0)
-  const altIn = (sim.keys.has('Space') ? 1 : 0) - (sim.keys.has('KeyC') ? 1 : 0)
-  const r = displayRadius(sim.target)
-  const speed = Math.max(r * 0.15, 20) * sim.userMul
-  sim.surfaceRight += side * speed * dt
-  sim.surfaceAlt += move * speed * dt
-  sim.surfaceUp += altIn * speed * dt
-  readPos(sim.target, pB, true)
-  xA.set(sim.surfaceRight, sim.surfaceUp, sim.surfaceAlt).applyQuaternion(qTmp)
-  const radial = Math.hypot(xA.x, xA.y, xA.z)
-  const minR = r * 1.02
-  if (radial < minR && radial > 0) {
-    const s = minR / radial
-    xA.multiplyScalar(s)
-  }
-  putCam(pB.x + xA.x, pB.y + xA.y, pB.z + xA.z)
-  lookToward({ x: cam64[0], y: cam64[1], z: cam64[2] }, pB)
-  yaw += -sim.lookX * 0.002
-  sim.lookX = sim.lookY = 0
-}
+function stepAerial(dt: number): void {
+  const forward =
+    (sim.keys.has(azertyForward()) || sim.keys.has('ArrowUp') ? 1 : 0) -
+    (sim.keys.has('KeyS') || sim.keys.has('ArrowDown') ? 1 : 0)
+  const strafe =
+    (sim.keys.has('KeyD') || sim.keys.has('ArrowRight') ? 1 : 0) -
+    (sim.keys.has(sim.layout === 'azerty' ? 'KeyQ' : 'KeyA') || sim.keys.has('ArrowLeft') ? 1 : 0)
+  const panning = Math.abs(forward) + Math.abs(strafe) > 0 || Math.abs(dragPanX) + Math.abs(dragPanY) > 0.5
+  if (panning) sim.follow = false
 
-function stepChase(dt: number): void {
-  readPos(sim.target, pB, true)
-  bodyQuaternion(sim.target, qTmp)
-  const off = craftOffset(sim.target, offV)
-  if (off.lengthSq() === 0) off.set(0, displayRadius(sim.target) * 0.4, displayRadius(sim.target) * 2.2)
-  const follow = 1 + (sim.keys.has(azertyForward()) ? -0.4 : 0) + (sim.keys.has('KeyS') ? 0.6 : 0)
-  xA.copy(off).multiplyScalar(Math.max(0.35, follow)).applyQuaternion(qTmp)
-  putCam(pB.x + xA.x, pB.y + xA.y, pB.z + xA.z)
-  lookToward({ x: cam64[0], y: cam64[1], z: cam64[2] }, pB)
-  void dt
-  yaw -= sim.lookX * 0.0015
-  pitch -= sim.lookY * 0.0012
-  sim.lookX = sim.lookY = 0
+  const reach = Math.max(airDist, MIN_ALT)
+  const keyStep = reach * 0.7 * dt
+  const dragStep = reach * 0.0024
+  const mx = strafe * keyStep + dragPanX * dragStep
+  const mz = forward * keyStep + -dragPanY * dragStep
+  dragPanX = 0
+  dragPanY = 0
+  const cy = Math.cos(airYaw)
+  const sy = Math.sin(airYaw)
+  targetPivot.x += -sy * mx + -cy * mz
+  targetPivot.z += cy * mx + -sy * mz
+
+  targetAirYaw -= dragOrbitX * 0.0048
+  targetAirTilt = clamp(targetAirTilt - dragOrbitY * 0.0038, 0.045, Math.PI / 2 - 0.012)
+  dragOrbitX = 0
+  dragOrbitY = 0
+  if (wheelZoom !== 0) {
+    targetDist *= Math.exp(wheelZoom * 0.0015)
+    wheelZoom = 0
+  }
+  targetDist = Math.max(targetDist, MIN_ALT)
+
+  if (sim.follow && sim.selected && BODY_BY_ID[sim.selected]) {
+    readPos(sim.selected, pB, true)
+    targetPivot.x = pB.x
+    targetPivot.y = pB.y
+    targetPivot.z = pB.z
+  }
+
+  const kp = 1 - Math.exp(-dt * 9)
+  pivot.x += (targetPivot.x - pivot.x) * kp
+  pivot.y += (targetPivot.y - pivot.y) * kp
+  pivot.z += (targetPivot.z - pivot.z) * kp
+  const logD = Math.log(Math.max(airDist, MIN_ALT))
+  const logT = Math.log(Math.max(targetDist, MIN_ALT))
+  airDist = Math.exp(logD + (logT - logD) * (1 - Math.exp(-dt * 7)))
+  airYaw = dampAngle(airYaw, targetAirYaw, dt, 12)
+  airTilt = damp(airTilt, targetAirTilt, dt, 12)
+  placeAerial()
+  vel.x = vel.y = vel.z = 0
 }
 
 function stepWarp(dt: number): void {
@@ -428,14 +523,9 @@ function stepWarp(dt: number): void {
     sim.tourWarping = false
     sim.tourHold = 0
     const id = warp.id
+    const touring = !!sim.tourId
     warp = null
-    sim.target = id
-    sim.selected = id
-    readPos(id, pB, true)
-    sim.orbitDist = Math.hypot(cam64[0] - pB.x, cam64[1] - pB.y, cam64[2] - pB.z)
-    sim.orbitYaw = Math.atan2(cam64[0] - pB.x, cam64[2] - pB.z)
-    sim.orbitPitch = Math.asin(clamp((cam64[1] - pB.y) / (sim.orbitDist || 1), -1, 1))
-    sim.mode = BODY_BY_ID[id].kind === 'craft' || BODY_BY_ID[id].kind === 'constellation' ? 'chase' : 'orbit'
+    adoptAerial(id, touring)
     vel.x = vel.y = vel.z = 0
     blip(980)
   }
@@ -498,13 +588,28 @@ function updateNearest(): void {
 export function toggleScale(): void {
   const id = sim.nearestId
   readPos(id, pA, true)
-  const ox = cam64[0] - pA.x
-  const oy = cam64[1] - pA.y
-  const oz = cam64[2] - pA.z
+  const cx = cam64[0]
+  const cy = cam64[1]
+  const cz = cam64[2]
+  const ox = cx - pA.x
+  const oy = cy - pA.y
+  const oz = cz - pA.z
   sim.scaleMode = sim.scaleMode === 'real' ? 'orrery' : 'real'
   writeDisplay(sim.scaleMode === 'orrery')
   readPos(id, pA, true)
   putCam(pA.x + ox, pA.y + oy, pA.z + oz)
+  if (sim.mode === 'aerial') {
+    const dx = cam64[0] - cx
+    const dy = cam64[1] - cy
+    const dz = cam64[2] - cz
+    pivot.x += dx
+    pivot.y += dy
+    pivot.z += dz
+    targetPivot.x += dx
+    targetPivot.y += dy
+    targetPivot.z += dz
+    placeAerial()
+  }
   blip(520)
 }
 
@@ -572,46 +677,36 @@ export function boot(view: string): void {
   initEphemeris()
   writeWorld(sim.jd)
   writeDisplay(false)
-  focusBody(
-    view === 'sun' ? 'soleil' : view === 'earth' ? 'terre' : view === 'saturn' ? 'saturne' : view === 'jwst' ? 'jwst' : view === 'm31' ? 'm31' : view === 'bh' ? 'sgr-a' : 'iss',
-    true,
-  )
+  if (!view || view === 'system' || view === 'hud') viewSolarSystem()
+  else {
+    focusBody(
+      view === 'sun' ? 'soleil' : view === 'earth' ? 'terre' : view === 'saturn' ? 'saturne' : view === 'jwst' ? 'jwst' : view === 'm31' ? 'm31' : view === 'bh' ? 'sgr-a' : 'iss',
+      true,
+    )
+  }
   if (view === 'sun') {
     readPos('soleil', pB, true)
     const r = displayRadius('soleil')
     putCam(pB.x + r * 1.2, pB.y + r * 0.45, pB.z + r * 3.4)
-    lookToward({ x: cam64[0], y: cam64[1], z: cam64[2] }, pB)
-    sim.mode = 'orbit'
-    sim.orbitDist = r * 3.6
-    sim.target = 'soleil'
-    sim.selected = 'soleil'
+    adoptAerial('soleil', false)
   }
   if (view === 'earth') {
     readPos('terre', pB, true)
     const r = displayRadius('terre')
     putCam(pB.x + r * 2.4, pB.y + r * 0.85, pB.z + r * 2.8)
-    lookToward({ x: cam64[0], y: cam64[1], z: cam64[2] }, pB)
-    sim.mode = 'orbit'
-    sim.orbitDist = Math.hypot(cam64[0] - pB.x, cam64[1] - pB.y, cam64[2] - pB.z)
+    adoptAerial('terre', false)
   }
   if (view === 'saturn') {
     readPos('saturne', pB, true)
     const r = displayRadius('saturne')
     putCam(pB.x + r * 0.15, pB.y + r * 1.15, pB.z + r * 3.1)
-    lookToward({ x: cam64[0], y: cam64[1], z: cam64[2] }, pB)
-    sim.mode = 'orbit'
-    sim.orbitDist = r * 3.3
+    adoptAerial('saturne', false)
   }
-  if (view === 'm31') focusBody('m31', true)
   if (view === 'bh') {
     readPos('sgr-a', pB, true)
     const r = Math.max(displayRadius('sgr-a') * 80, BODY_BY_ID['sgr-a'].approach)
     putCam(pB.x + r * 0.34, pB.y + r * 0.42, pB.z + r * 0.78)
-    lookToward({ x: cam64[0], y: cam64[1], z: cam64[2] }, pB)
-    sim.mode = 'orbit'
-    sim.orbitDist = r
-    sim.target = 'sgr-a'
-    sim.selected = 'sgr-a'
+    adoptAerial('sgr-a', false)
   }
   prevCam.x = cam64[0]
   prevCam.y = cam64[1]
@@ -621,14 +716,21 @@ export function boot(view: string): void {
   window.__UNIVERS__ = {
     ready: true,
     setView: (name: string) => {
-      if (name === 'iss') focusBody('iss', true)
-      else if (name === 'hud') focusBody('iss', true)
+      if (name === 'system' || name === 'hud') viewSolarSystem()
+      else if (name === 'iss') focusBody('iss', true)
       else boot(name)
     },
     warpTo: (id: string) => beginWarp(id),
+    viewSystem: () => viewSolarSystem(),
+    toggleFollow: () => toggleFollow(),
     debug: () => ({
       cam: [cam64[0], cam64[1], cam64[2]],
+      pivot: [pivot.x, pivot.y, pivot.z],
+      dist: airDist,
+      tilt: airTilt,
       mode: sim.mode,
+      follow: sim.follow,
+      warp: sim.warpActive,
       target: sim.target,
       selected: sim.selected,
       gap: sim.nearestGap,
@@ -639,15 +741,13 @@ export function boot(view: string): void {
 }
 
 export function frame(dt: number, camera: THREE.PerspectiveCamera): void {
-  const h = Math.min(Math.max(dt, 0.0001), 0.05)
+  const h = Math.min(Math.max(dt, 0.0001), 0.1)
   if (!sim.paused) sim.jd += (h * sim.timeScale) / 86400
   writeWorld(sim.jd)
   writeDisplay(sim.scaleMode === 'orrery')
   if (sim.warpActive) stepWarp(h)
-  else if (sim.mode === 'orbit') stepOrbit(h)
-  else if (sim.mode === 'surface') stepSurface(h)
-  else if (sim.mode === 'chase') stepChase(h)
-  else stepFly(h)
+  else if (sim.mode === 'freefly') stepFly(h)
+  else stepAerial(h)
   stepTour(h)
   updateNearest()
   const dx = cam64[0] - prevCam.x
@@ -690,6 +790,18 @@ export function bindInput(canvas: HTMLCanvasElement): () => void {
       return
     }
     if (typingTarget(e.target)) return
+    const panKey =
+      e.code === 'KeyZ' ||
+      e.code === 'KeyQ' ||
+      e.code === 'KeyS' ||
+      e.code === 'KeyD' ||
+      e.code === 'KeyW' ||
+      e.code === 'KeyA' ||
+      e.code === 'ArrowUp' ||
+      e.code === 'ArrowDown' ||
+      e.code === 'ArrowLeft' ||
+      e.code === 'ArrowRight'
+    if (sim.mode === 'aerial' && panKey) sim.follow = false
     if (e.code === 'Space') e.preventDefault()
     sim.keys.add(e.code)
     if (e.code === 'KeyH') {
@@ -705,6 +817,8 @@ export function bindInput(canvas: HTMLCanvasElement): () => void {
     } else if (e.code === 'F1') {
       e.preventDefault()
       sim.help = !sim.help
+    } else if (e.code === 'KeyR') {
+      viewSolarSystem()
     } else if (e.code === 'Escape') {
       sim.search = false
       sim.help = false
@@ -722,26 +836,82 @@ export function bindInput(canvas: HTMLCanvasElement): () => void {
     sim.keys.delete(e.code)
   }
   const move = (e: MouseEvent) => {
-    if (document.pointerLockElement === canvas || sim.dragging) {
+    const dx = e.movementX !== 0 ? e.movementX : e.clientX - lastPX
+    const dy = e.movementY !== 0 ? e.movementY : e.clientY - lastPY
+    lastPX = e.clientX
+    lastPY = e.clientY
+    sim.dragX += dx
+    sim.dragY += dy
+    if (sim.mode === 'aerial' && !sim.warpActive) {
+      if (leftDown || e.buttons & 1) {
+        dragPanX += dx
+        dragPanY += dy
+      }
+      if (rightDown || e.buttons & 2) {
+        dragOrbitX += dx
+        dragOrbitY += dy
+      }
+      return
+    }
+    if (document.pointerLockElement === canvas) {
       sim.lookX += e.movementX
       sim.lookY += e.movementY
-      sim.dragX += e.movementX
-      sim.dragY += e.movementY
     }
   }
   const wheel = (e: WheelEvent) => {
     e.preventDefault()
-    const f = Math.exp(e.deltaY * 0.0012)
-    if (sim.mode === 'orbit' || sim.mode === 'chase') sim.orbitDist *= f
-    else sim.userMul = clamp(sim.userMul / f, 0.02, 200)
+    if (sim.mode === 'aerial') wheelZoom += e.deltaY
+    else sim.userMul = clamp(sim.userMul * Math.exp(-e.deltaY * 0.0012), 0.02, 200)
+  }
+  const armButtons = (e: MouseEvent) => {
+    lastPX = e.clientX
+    lastPY = e.clientY
+    if (e.button === 0) leftDown = true
+    if (e.button === 2) rightDown = true
   }
   const pointerDown = (e: PointerEvent) => {
-    if (e.button !== 0) return
     resumeAudio()
+    armButtons(e)
+    if (e.button !== 0) return
     if (sim.mode === 'freefly' && !sim.mobile) canvas.requestPointerLock()
     sim.dragging = true
   }
-  const pointerUp = () => {
+  const menu = (e: Event) => e.preventDefault()
+  const touches = new Map<number, { x: number; y: number }>()
+  let pinchDist = 0
+  let pinchAng = 0
+  let leftDown = false
+  let rightDown = false
+  let lastPX = 0
+  let lastPY = 0
+  const pointerDownTouch = (e: PointerEvent) => {
+    touches.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    if (touches.size === 2) {
+      const [a, b] = [...touches.values()]
+      pinchDist = Math.hypot(a.x - b.x, a.y - b.y)
+      pinchAng = Math.atan2(b.y - a.y, b.x - a.x)
+    }
+  }
+  const pointerMoveTouch = (e: PointerEvent) => {
+    if (!touches.has(e.pointerId)) return
+    touches.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    if (sim.mode !== 'aerial' || touches.size < 2) return
+    const [a, b] = [...touches.values()]
+    const dist = Math.hypot(a.x - b.x, a.y - b.y)
+    const ang = Math.atan2(b.y - a.y, b.x - a.x)
+    if (pinchDist > 0) wheelZoom += (pinchDist - dist) * 1.6
+    let dAng = ang - pinchAng
+    if (dAng > Math.PI) dAng -= TAU
+    if (dAng < -Math.PI) dAng += TAU
+    dragOrbitX += dAng * 90
+    pinchDist = dist
+    pinchAng = ang
+  }
+  const pointerUp = (e: PointerEvent | MouseEvent) => {
+    if ('pointerId' in e) touches.delete(e.pointerId)
+    if (touches.size < 2) pinchDist = 0
+    if (e.button === 0) leftDown = false
+    if (e.button === 2) rightDown = false
     sim.dragging = false
     sim.dragX = 0
     sim.dragY = 0
@@ -749,16 +919,28 @@ export function bindInput(canvas: HTMLCanvasElement): () => void {
   window.addEventListener('keydown', down)
   window.addEventListener('keyup', up)
   window.addEventListener('mousemove', move)
+  window.addEventListener('mousedown', armButtons)
+  window.addEventListener('contextmenu', menu)
   canvas.addEventListener('wheel', wheel, { passive: false })
   canvas.addEventListener('pointerdown', pointerDown)
+  canvas.addEventListener('pointerdown', pointerDownTouch)
+  canvas.addEventListener('pointermove', pointerMoveTouch)
+  canvas.addEventListener('contextmenu', menu)
   window.addEventListener('pointerup', pointerUp)
+  window.addEventListener('mouseup', pointerUp)
   return () => {
     window.removeEventListener('keydown', down)
     window.removeEventListener('keyup', up)
     window.removeEventListener('mousemove', move)
+    window.removeEventListener('mousedown', armButtons)
+    window.removeEventListener('contextmenu', menu)
     canvas.removeEventListener('wheel', wheel)
     canvas.removeEventListener('pointerdown', pointerDown)
+    canvas.removeEventListener('pointerdown', pointerDownTouch)
+    canvas.removeEventListener('pointermove', pointerMoveTouch)
+    canvas.removeEventListener('contextmenu', menu)
     window.removeEventListener('pointerup', pointerUp)
+    window.removeEventListener('mouseup', pointerUp)
   }
 }
 
