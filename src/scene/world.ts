@@ -28,6 +28,7 @@ import {
 import { beltAsteroids, beltKuiper, bodyQuaternion, probePaths, screenStreak } from '../engine/runtime'
 import { cam64, labelFrame, sim } from '../engine/state'
 import { createCosmos } from './cosmos'
+import { span } from '../engine/hitch'
 import { deferBitmap, followTexture, pumpGpuUploads, streamTextures } from '../engine/texcache'
 import { requestMaps } from './textures'
 import { requestCover, tileCacheCount, type QuadBody } from './quadtree'
@@ -967,6 +968,7 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
     const inside = gdist < 45000 * LY
     sky.visible = inside && sim.echelle > 3
 
+    const tBodies = performance.now()
     let shownBodies = 0
     for (const id of BODY_IDS) {
       const b = BODY_BY_ID[id]
@@ -1013,7 +1015,7 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
         }
         if (node.mat.uniforms.uTileBlend && (id === 'terre' || id === 'lune' || id === 'mars')) {
           const ratio = dist / Math.max(r, 1)
-          if (ratio > 2.6 || sim.hidden) node.mat.uniforms.uTileBlend.value = 0
+          if (sim.settle || ratio > 2.6 || sim.hidden) node.mat.uniforms.uTileBlend.value = 0
           else {
             qInv.copy(node.group.quaternion).invert()
             v.set(-node.group.position.x, -node.group.position.y, -node.group.position.z).applyQuaternion(qInv)
@@ -1108,9 +1110,9 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
           }
         }
         if (id === 'soleil' && sim.echelle <= 3) node.group.visible = false
-        if (showMesh && px > 12 && (id === sim.selected || id === sim.nearestId)) requestMaps(id)
+        if (!sim.settle && showMesh && px > 12 && (id === sim.selected || id === sim.nearestId)) requestMaps(id)
       }
-      if (sim.echelle >= 8 && sim.selected === 'cmb') requestMaps('cmb')
+      if (!sim.settle && sim.echelle >= 8 && sim.selected === 'cmb') requestMaps('cmb')
       if (b.kind === 'galaxy') {
         if (id !== 'mw') {
           node.group.lookAt(0, 0, 0)
@@ -1149,7 +1151,7 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
         const angC = 2 * Math.atan(Math.max(r, 12) / Math.max(dist, 1))
         const pxC = (angC / ((sim.fov * Math.PI) / 180)) * Math.max(h, 1)
         node.group.visible = pxC > 1.3 || id === sim.selected || id === sim.nearestId
-        if (id === 'iss' && (id === sim.selected || id === sim.target)) requestMaps('terre')
+        if (!sim.settle && id === 'iss' && (id === sim.selected || id === sim.target)) requestMaps('terre')
       }
       if (b.kind === 'nebula') {
         const angN = 2 * Math.atan(r / Math.max(dist, 1))
@@ -1171,6 +1173,7 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
       }
       if (node.group.visible) shownBodies += 1
     }
+    span('bodies', performance.now() - tBodies)
     const jupMat = nodes.get('jupiter')?.mat
     const satMat = nodes.get('saturne')?.mat
     if (jupMat?.uniforms.uMoonN) {
@@ -1238,6 +1241,7 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
     }
     constLines.visible = sim.layers.constellations
 
+    const tBelts = performance.now()
     const nearSystem = sim.band === 'systeme' || sim.band === 'planetaire' || sim.band === 'sonde' || sim.scaleMode === 'orrery'
     const sunDistNow = Math.hypot(cam64[0], cam64[1], cam64[2])
     const inAsteroids = sunDistNow > 1.6 * AU && sunDistNow < 4.2 * AU
@@ -1246,6 +1250,7 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
     else asteroids.visible = false
     if (nearSystem && inKuiper && (sim.echelle < 3 || (orbitTick & 7) === 0)) updateBelts(kuiper, beltKuiper, 40 * AU)
     else if (!(nearSystem && inKuiper)) kuiper.visible = false
+    span('belts', performance.now() - tBelts)
     beltRing.position.set(-cam64[0], -cam64[1], -cam64[2])
     kuiperRing.position.copy(beltRing.position)
     beltRing.visible = sim.band !== 'sonde' && sim.band !== 'intergalactique'
@@ -1266,6 +1271,7 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
       scatterShell(shellDummy, geoMesh, ex, ey, ez, 6.371e6 + 35786e3, 0.02, years * 360, 36)
     }
 
+    const tOrbits = performance.now()
     const showOrbits =
       sim.layers.orbits &&
       sim.echelle >= 3 &&
@@ -1334,6 +1340,7 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
       attr.needsUpdate = true
     }
 
+    span('orbits', performance.now() - tOrbits)
     const sgr = nodes.get('sgr-a')
     const cyg = nodes.get('cyg-x1')
     if (sgr && cyg) {
@@ -1482,7 +1489,9 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
         a: inFront ? Math.max(0, 1.2 - Math.hypot(v.x, v.y)) * (sim.band === 'sonde' || sim.band === 'planetaire' || sim.band === 'systeme' ? 0.85 : 0.2) : 0,
       }
     }
+    const tPump = performance.now()
     pumpGpuUploads()
+    span('pump', performance.now() - tPump)
     void dt
   }
 

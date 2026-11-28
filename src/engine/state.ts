@@ -107,6 +107,9 @@ export const sim = {
   } as Layers,
   hover: null as string | null,
   ready: false,
+  /** True until the hidden ISS/system pre-render has finished. Network stays idle. */
+  settle: true,
+  booted: false,
   keys: new Set<string>(),
   stick: { x: 0, y: 0 },
   lookX: 0,

@@ -31,6 +31,13 @@ declare global {
       warmupFrames: number
       warmupMs: number
       warmupMaxMs: number
+      hitches: {
+        ms: number
+        view: string
+        phase: 'warmup' | 'measure'
+        frame: number
+        notes: string[]
+      }[]
     }[]
   }
 }
