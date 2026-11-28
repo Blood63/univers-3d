@@ -203,13 +203,19 @@ function applyUpload(job: Upload): void {
   upgrading.delete(job.key)
 }
 
-/** Spread GPU uploads. A full HD map uses the whole budget; several previews share one frame. */
+/** True while a KTX2 transcode or a GPU upload is still in flight. */
+export function gpuBusy(): boolean {
+  return uploadQueue.length > 0 || upgrading.size > 0
+}
+
+/** Spread GPU uploads. One HD map fills the frame; a few small previews can share it. */
 export function pumpGpuUploads(): void {
   let cost = 0
-  while (uploadQueue.length && cost < 1_400_000) {
+  const budget = 480_000
+  while (uploadQueue.length && cost < budget) {
     const next = uploadQueue[0]
-    const pixels = next.kind === 'bitmap' ? next.bitmap.width * next.bitmap.height : next.kind === 'replace' ? 4_000_000 : 512 * 512
-    if (cost > 0 && cost + pixels > 1_400_000) break
+    const pixels = next.kind === 'bitmap' ? next.bitmap.width * next.bitmap.height : next.kind === 'replace' ? 8_000_000 : 512 * 512
+    if (cost > 0 && cost + pixels > budget) break
     cost += pixels
     applyUpload(uploadQueue.shift()!)
   }

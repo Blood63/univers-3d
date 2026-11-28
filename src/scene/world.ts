@@ -1007,7 +1007,7 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
         }
         if (node.mat.uniforms.uTileBlend && (id === 'terre' || id === 'lune' || id === 'mars')) {
           const ratio = dist / Math.max(r, 1)
-          if (ratio > 2.6 || sim.hidden) node.mat.uniforms.uTileBlend.value = 0
+          if (ratio > 2.6 || sim.hidden || sim.benchOn) node.mat.uniforms.uTileBlend.value = 0
           else {
             qInv.copy(node.group.quaternion).invert()
             v.set(-node.group.position.x, -node.group.position.y, -node.group.position.z).applyQuaternion(qInv)

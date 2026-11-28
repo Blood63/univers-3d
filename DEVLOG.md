@@ -597,3 +597,23 @@ Correctifs. Échauffement de 60 images, rapporté à part (`warmupFrames`, `warm
 Poids des cartes HD : JPEG+PNG 25,42 Mo → KTX2 12,87 Mo. VRAM si toutes sont résidentes, mipmaps compris : RGBA8 571 Mo → environ 143 Mo en BC7 (RTX 5070) ou 71 Mo en BC1. Le démarrage reste sur les aperçus JPEG. Le 404 `textures/preview/saturn_ring.png` est comblé. Sur Pixel 7 le fil d’Ariane est sous le titre, plus sous Ctrl+K. `H` est documenté comme immersion. La vue ISS recule à ~780 m le long de la radiale : le disque terrestre remplit le fond, le limbe reste bleu.
 
 Pages `46135749201` réussi, le site répond 200 et sert `index-CYnxw_vS.js`. `textures/preview/saturn_ring.png` répond 200. Lighthouse 12 sur ce déploiement, même Chrome headless SwiftShader : PC 59 / 94 / 100 / 90, mobile 44 / 100 / 100 / 90 (perf, accessibilité, bonnes pratiques, SEO). Bonnes pratiques revient à 100, aucune requête en échec. Poids au premier écran toujours 0,90 Mo : les KTX2 ne partent qu’avec la carte HD de l’astre cadré. Ces scores de performance ne remplacent pas un `?bench=1` à 300 Hz sur la RTX 5070.
+
+## Re-bench RTX 5070, 28 novembre 2026, 11:44
+
+Même machine, 300 Hz, après la PR #8. Colonnes : fps / 1 % low / p99 ms. Le max et les images au-dessus de 16,7 ms ne sont cités que lorsqu’ils comptent.
+
+| Vue | fps | 1 % low | p99 | avant (fps / 1 % / p99) |
+| --- | --- | --- | --- | --- |
+| system | 273,6 | 196,1 | 5,1 | 178 / 40 / 25,1 |
+| iss | 282,4 | 97,1 | 10,3 | 186 / 22 / 44,9 |
+| earth | 299,0 | 238,1 | 4,2 | 274 / 175 / 5,7 |
+| moon | 300,4 | 277,8 | 3,6 | 274 / 161 / 6,2 |
+| mars | 299,4 | 263,2 | 3,8 | 279 / 208 / 4,8 |
+| jupiter | 300,0 | 238,1 | 4,2 | 288 / 101 / 9,9 |
+| saturn | 300,0 | 285,7 | 3,5 | 286 / 139 / 7,2 |
+| ganymede | 300,0 | 277,8 | 3,6 | 295 / 189 / 5,3 |
+| m31 | 300,0 | 285,7 | 3,5 | 291 / 94 / 10,7 |
+
+ISS : max 18,3 ms, une image au-dessus de 16,7 ms. Échauffement max : system 19,3 ms, iss 12,6 ms, les autres ≤ 8 ms.
+
+Cette image de 18 ms est l’upload GPU (ou la recompilation du shader terrestre) d’une carte KTX2 de la Terre, ou une tuile GIBS, qui arrive après les 60 images d’échauffement. La vue ISS est à ~400 km, donc le quadtree demande des tuiles, et les cinq KTX2 (jour, nuit, nuages, normale, spéculaire) mettent plus de 60 images à transcoder. Le correctif précharge ces cartes dès le début de la vue, prolonge l’échauffement tant qu’un transcodage ou un upload est en cours (plafond 240 images, plus l’image qui suit la fin de la file), et ne demande aucune tuile pendant le banc. Les aperçus du premier écran sont envoyés par plus petits paquets, et les quatre premières images (compilation du composer) ne sont pas comptées dans l’échauffement de `system`.

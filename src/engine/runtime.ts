@@ -2,6 +2,8 @@ import * as THREE from 'three'
 import { BODY_BY_ID, BODY_IDS, TOURS } from '../astro/catalog'
 import { displayRadius, initEphemeris, readPos, realRadius, trajectorySamples, writeDisplay, writeWorld } from '../astro/ephemeris'
 import { AU, J2000, TAU, bandOf, clamp, smoother, v3, ymdToJD, type V3 } from '../astro/math'
+import { gpuBusy } from './texcache'
+import { requestMaps } from '../scene/textures'
 import { echelleOf } from '../astro/scales'
 import { blip, ensureAudio, resumeAudio, setRadio } from './audio'
 import { cam64, detectMobile, sim, type CamMode } from './state'
@@ -888,6 +890,7 @@ export function boot(view: string): void {
 
 const BENCH_VIEWS = ['system', 'iss', 'earth', 'moon', 'mars', 'jupiter', 'saturn', 'ganymede', 'm31'] as const
 const BENCH_WARMUP = 60
+const BENCH_WARMUP_MAX = 240
 const BENCH_FRAMES = 300
 const benchSamples: number[] = []
 const warmupSamples: number[] = []
@@ -907,6 +910,8 @@ type BenchRow = {
 const benchRows: BenchRow[] = []
 let benchStep = -1
 let benchWarm = 0
+let benchLead = 4
+let benchWasBusy = false
 
 export function startBench(): void {
   sim.benchOn = true
@@ -916,6 +921,8 @@ export function startBench(): void {
   benchSamples.length = 0
   warmupSamples.length = 0
   benchWarm = 0
+  benchLead = 4
+  benchWasBusy = false
   beginBenchView(BENCH_VIEWS[0])
 }
 
@@ -929,9 +936,21 @@ function beginBenchView(name: string): void {
   else if (name === 'ganymede') focusBody('ganymede', true)
   else if (name === 'm31') focusBody('m31', true)
   else focusBody('iss', true)
+  const preload: Record<string, string> = {
+    iss: 'terre',
+    earth: 'terre',
+    moon: 'lune',
+    mars: 'mars',
+    jupiter: 'jupiter',
+    saturn: 'saturne',
+    ganymede: 'ganymede',
+  }
+  const body = preload[name]
+  if (body) requestMaps(body)
   benchSamples.length = 0
   warmupSamples.length = 0
   benchWarm = 0
+  benchWasBusy = gpuBusy()
 }
 
 function summarize(samples: number[]): { avg: number; max: number; over16: number; over33: number } {
@@ -1006,7 +1025,14 @@ export function frame(dt: number, camera: THREE.PerspectiveCamera): void {
   for (const fn of syncs) fn(h)
   if (sim.benchOn && !sim.warpActive && benchStep >= 0 && benchStep < BENCH_VIEWS.length) {
     const raw = Math.max(dt, 0.0001)
-    if (benchWarm < BENCH_WARMUP) {
+    if (benchLead > 0) {
+      benchLead -= 1
+      return
+    }
+    const busy = gpuBusy()
+    const holdForGpu = (busy || benchWasBusy) && benchWarm < BENCH_WARMUP_MAX
+    benchWasBusy = busy
+    if (benchWarm < BENCH_WARMUP || holdForGpu) {
       warmupSamples.push(raw)
       benchWarm += 1
     } else {
