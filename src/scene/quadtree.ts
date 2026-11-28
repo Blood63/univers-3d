@@ -138,7 +138,7 @@ export function requestCover(body: QuadBody, uu: number, vv: number, ratio: numb
     hit.last = ++clock
     return { tex: hit.tex, merc, z, x, y, offU, offV, scaleU, scaleV }
   }
-  if (!pending.has(key) && !failed.has(key)) {
+  if (!pending.has(key) && !failed.has(key) && pending.size < 1) {
     pending.add(key)
     deferBitmap(urlFor(body, z, x, y), (bitmap) => storeTile(key, bitmap), () => {
       pending.delete(key)

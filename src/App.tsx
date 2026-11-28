@@ -6,6 +6,7 @@ import { beginWarp, bindInput, boot, frame } from './engine/runtime'
 import { detectMobile, sim } from './engine/state'
 import { createUniverse, type UniverseHandle } from './scene/world'
 import { loadTextures } from './scene/textures'
+import { note, postReady } from './engine/hitch'
 import { applyAnisotropy, bindRenderer, markFrameStart, startHdUpgrade } from './engine/texcache'
 
 const PostFX = lazy(() => import('./scene/PostFX'))
@@ -42,11 +43,19 @@ function Scene({ textures }: { textures: Record<string, THREE.Texture> }) {
     let cancelled = false
     const params = new URLSearchParams(location.search)
     const renderer = gl as THREE.WebGLRenderer & { compileAsync?: (s: THREE.Scene, c: THREE.Camera) => Promise<void> }
+    note('scene-compile')
     const compiled = renderer.compileAsync ? renderer.compileAsync(scene, camera) : Promise.resolve(renderer.compile(scene, camera))
-    void Promise.resolve(compiled)
-      .catch(() => undefined)
+    const postGate = Promise.race([postReady, new Promise<void>((resolve) => window.setTimeout(resolve, 4000))])
+    void Promise.all([Promise.resolve(compiled).catch(() => undefined), postGate])
+      .then(
+        () =>
+          new Promise<void>((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+          }),
+      )
       .then(() => {
         if (cancelled) return
+        note('boot')
         try {
           boot(params.get('vue') || 'system')
           startHdUpgrade(sim.quality)

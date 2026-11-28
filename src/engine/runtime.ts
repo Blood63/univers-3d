@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { BODY_BY_ID, BODY_IDS, TOURS } from '../astro/catalog'
 import { displayRadius, initEphemeris, readPos, realRadius, trajectorySamples, writeDisplay, writeWorld } from '../astro/ephemeris'
 import { AU, J2000, TAU, bandOf, clamp, smoother, v3, ymdToJD, type V3 } from '../astro/math'
+import { logHitch, notesAround } from './hitch'
 import { preloadLowEarthTiles } from '../scene/quadtree'
 import { requestMaps } from '../scene/textures'
 import { echelleOf } from '../astro/scales'
@@ -1025,6 +1026,14 @@ export function frame(dt: number, camera: THREE.PerspectiveCamera): void {
   for (const fn of syncs) fn(h)
   if (sim.benchOn && !sim.warpActive && benchStep >= 0 && benchStep < BENCH_VIEWS.length) {
     const raw = Math.max(dt, 0.0001)
+    if (raw > 0.0167) {
+      logHitch({
+        ms: raw * 1000,
+        view: BENCH_VIEWS[benchStep] ?? '?',
+        phase: benchWarm < BENCH_WARMUP ? 'warmup' : 'measure',
+        notes: notesAround(),
+      })
+    }
     if (benchWarm < BENCH_WARMUP) {
       warmupSamples.push(raw)
       benchWarm += 1

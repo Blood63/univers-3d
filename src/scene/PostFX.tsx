@@ -3,10 +3,11 @@ import { Bloom, BrightnessContrast, ChromaticAberration, EffectComposer, FXAA, S
 import { BloomEffect, ToneMappingMode } from 'postprocessing'
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import * as THREE from 'three'
+import { markPostReady, note } from '../engine/hitch'
 import { sim } from '../engine/state'
 
 type WarmPass = { updateMaterial?: () => void; fullscreenMaterial?: THREE.Material }
-type WarmComposer = { passes?: WarmPass[] }
+type WarmComposer = { passes?: WarmPass[]; setSize?: (width: number, height: number) => void }
 
 export default function PostFX({ ca }: { ca: RefObject<{ offset: THREE.Vector2 } | null> }) {
   const bloom = useRef<BloomEffect | null>(null)
@@ -19,6 +20,12 @@ export default function PostFX({ ca }: { ca: RefObject<{ offset: THREE.Vector2 }
     const start = () => {
       if (cancel) return
       const passes = composer.current?.passes ?? []
+      if (passes.length === 0) {
+        note('post-skip')
+        setLive(true)
+        markPostReady()
+        return
+      }
       const mats: THREE.Material[] = []
       for (const pass of passes) {
         pass.updateMaterial?.()
@@ -29,7 +36,11 @@ export default function PostFX({ ca }: { ca: RefObject<{ offset: THREE.Vector2 }
       const step = () => {
         if (cancel) return
         if (index >= mats.length) {
+          note('post-targets')
+          composer.current?.setSize?.(gl.domElement.width, gl.domElement.height)
+          note('post-live')
           setLive(true)
+          markPostReady()
           return
         }
         const scene = new THREE.Scene()
@@ -47,9 +58,8 @@ export default function PostFX({ ca }: { ca: RefObject<{ offset: THREE.Vector2 }
       }
       step()
     }
-    const idle = window.requestIdleCallback
-    if (idle) idle(() => start(), { timeout: 180 })
-    else window.setTimeout(start, 16)
+    note('post-compile-start')
+    start()
     return () => {
       cancel = true
     }

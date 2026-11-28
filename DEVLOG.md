@@ -625,3 +625,18 @@ Après la PR #9, 300 Hz. Les neuf vues tiennent l’objectif dans la fenêtre me
 Le warm-up, lui, saccade encore. warmupMaxMs : system 68 ms (premier affichage), iss 40,4 ms, earth 14,9 ms, m31 10,7 ms, les autres sous le seuil.
 
 La passe suivante ne rallonge plus l’échauffement : il reste à 60 images. `KHR_parallel_shader_compile` est activé avant tout programme. Le post-traitement ne s’affiche qu’une fois chaque passe compilée à part, via `compileAsync`, en idle. Les cartes KTX2 de la Terre et les tuiles GIBS z0/z1 partent au début d’un vol vers la Terre ou l’ISS, pas dans le premier écran. Une texture est envoyée au GPU par image, et seulement si la frame a encore moins de 8 ms. Le plus grand niveau au-dessus de 2048 n’est pas envoyé, pour que cet envoi tienne dans le budget. Un vol déclenche le chargement de la cible au départ, pas à l’arrivée. Le DPR est fixé dès le départ et ne change pas pendant 8 s ni pendant le banc.
+
+## Re-bench RTX 5070, 28 novembre 2026, 12:24
+
+Après les PR #10 et #11. Le warm-up de system est descendu (68 → 12,6 ms), mais le pic de 65 ms est entré dans la fenêtre mesurée. L’ISS mesure bien (p99 6,0 ms) et son warm-up reste à 31,5 ms.
+
+| Vue | fps | 1 % low | p99 | max | avant fps |
+| --- | --- | --- | --- | --- | --- |
+| system | 243,5 | 140,8 | 7,1 | 65 | 269 |
+| iss | 295 | 166,7 | 6,0 | 6,6 | 298 |
+| earth | — | ≥ 208 | ≤ 4,8 | — | 299 |
+| autres | — | ≥ 208 | ≤ 4,8 | warmup ≤ 11,6 | — |
+
+Le 65 ms est l’activation du post-traitement : `requestIdleCallback` (timeout 180 ms) lance `compileAsync` puis `setLive(true)` après les 60 images, et le premier `composer.render` alloue les render targets en plein écran. La moyenne 269 → 243 s’explique par cette image dans les 300 : elle ajoute une soixantaine de millisecondes au total, le reste vient de quelques images entre 8 et 16 ms autour de cette activation. Ce n’est pas un coût permanent du rendu.
+
+Correctif : les passes sont compilées et les cibles créées avant `boot`, donc avant le chronomètre, en interrogeant `COMPLETION_STATUS_KHR` via `compileAsync`. Le banc ne démarre qu’après deux images de ce premier rendu. Les mips KTX2 partent du plus petit au plus grand, un par image. Une seule tuile est en vol. Les images au-dessus de 16,7 ms journalisent les marques récentes dans `window.__HITCHES__`.
