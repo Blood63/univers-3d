@@ -118,6 +118,9 @@ uniform sampler2D uTile;
 uniform vec2 uTileOff;
 uniform vec2 uTileScale;
 uniform float uTileBlend;
+uniform float uMerc;
+uniform float uTileZ;
+uniform vec2 uTileXY;
 
 float hash13(vec3 p){ return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
 float vnoise(vec3 p){
@@ -157,6 +160,12 @@ void main() {
   vec3 day = texture2D(uDay, uv).rgb * uTint;
   if (uTileBlend > 0.02) {
     vec2 tuv = (vUv - uTileOff) * uTileScale;
+    if (uMerc > 0.5) {
+      float lat = clamp((vUv.y - 0.5) * 3.14159265, -1.4, 1.4);
+      float mercY = (1.0 - log(tan(lat) + 1.0 / cos(lat)) / 3.14159265) * 0.5;
+      float n = exp2(uTileZ);
+      tuv = vec2(vUv.x * n - uTileXY.x, mercY * n - uTileXY.y);
+    }
     if (tuv.x > 0.0 && tuv.x < 1.0 && tuv.y > 0.0 && tuv.y < 1.0) {
       day = mix(day, texture2D(uTile, tuv).rgb, uTileBlend);
     }

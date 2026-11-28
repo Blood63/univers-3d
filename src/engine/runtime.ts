@@ -756,6 +756,12 @@ export function boot(view: string): void {
   prevCam.z = cam64[2]
   sim.ready = true
   bootWorker()
+  if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('bench') === '1') {
+    sim.benchOn = true
+    benchStep = 0
+    benchRows.length = 0
+    beginBenchView(BENCH_VIEWS[0])
+  }
   window.__UNIVERS__ = {
     ready: true,
     setView: (name: string) => {
@@ -783,8 +789,51 @@ export function boot(view: string): void {
   }
 }
 
+const BENCH_VIEWS = ['system', 'iss', 'earth', 'moon', 'mars', 'jupiter', 'saturn', 'ganymede', 'm31'] as const
+const benchSamples: number[] = []
+const benchRows: { view: string; fps: number; low: number; ms: number }[] = []
+let benchStep = -1
+
+function beginBenchView(name: string): void {
+  if (name === 'system') viewSolarSystem()
+  else if (name === 'moon') focusBody('lune', true)
+  else if (name === 'earth') focusBody('terre', true)
+  else if (name === 'mars') focusBody('mars', true)
+  else if (name === 'jupiter') focusBody('jupiter', true)
+  else if (name === 'saturn') focusBody('saturne', true)
+  else if (name === 'ganymede') focusBody('ganymede', true)
+  else if (name === 'm31') focusBody('m31', true)
+  else focusBody('iss', true)
+  benchSamples.length = 0
+}
+
+function finishBenchStep(name: string): void {
+  const n = benchSamples.length || 1
+  let sum = 0
+  for (let i = 0; i < benchSamples.length; i++) sum += benchSamples[i]
+  const avg = sum / n
+  const sorted = benchSamples.slice().sort((a, b) => a - b)
+  const cut = Math.max(0, Math.floor(sorted.length * 0.99))
+  let worst = 0
+  let wn = 0
+  for (let i = cut; i < sorted.length; i++) {
+    worst += sorted[i]
+    wn += 1
+  }
+  const worstAvg = wn ? worst / wn : avg
+  benchRows.push({
+    view: name,
+    fps: avg > 0 ? 1 / avg : 0,
+    low: worstAvg > 0 ? 1 / worstAvg : 0,
+    ms: avg * 1000,
+  })
+  sim.benchNote = benchRows.map((r) => `${r.view} ${r.fps.toFixed(0)} fps / 1% ${r.low.toFixed(0)} / ${r.ms.toFixed(1)} ms`).join('\n')
+  window.__BENCH__ = benchRows.slice()
+}
+
 export function frame(dt: number, camera: THREE.PerspectiveCamera): void {
   sim.frameMs = dt * 1000
+  if (sim.hidden || sim.contextLost) return
   const h = Math.min(Math.max(dt, 0.0001), 0.1)
   if (!sim.paused) sim.jd += (h * sim.timeScale) / 86400
   writeWorld(sim.jd)
@@ -817,6 +866,15 @@ export function frame(dt: number, camera: THREE.PerspectiveCamera): void {
     worker.postMessage({ type: 'ephemeris', jd: sim.jd, token: Math.floor(sim.jd) })
   }
   for (const fn of syncs) fn(h)
+  if (sim.benchOn && !sim.warpActive && benchStep >= 0 && benchStep < BENCH_VIEWS.length) {
+    benchSamples.push(Math.min(dt, 0.1))
+    if (benchSamples.length >= 48) {
+      finishBenchStep(BENCH_VIEWS[benchStep])
+      benchStep += 1
+      if (benchStep < BENCH_VIEWS.length) beginBenchView(BENCH_VIEWS[benchStep])
+      else sim.benchOn = false
+    }
+  }
 }
 
 function typingTarget(t: EventTarget | null): boolean {

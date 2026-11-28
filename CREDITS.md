@@ -42,6 +42,13 @@ Cartes 8k réduites à 3840×1920 pour le chargement progressif (aperçu 512 px,
 - `titan.jpg` — mosaïque Cassini « Titan map April 2011 », domaine public.
 - `cmb.jpg` — « Cosmic Microwave Background (Planck-CMB-SMICA) », ESA/Planck, CC BY 4.0. Carte équirectangulaire des anisotropies SMICA, réduite à 3840×1920.
 
+## Tuiles distantes, chargées à la volée (non embarquées)
+
+- Terre : NASA GIBS, couche Blue Marble Next Generation, grille EPSG:4326 `500m`. <https://nasa-gibs.github.io/gibs-api-docs/>
+- Lune : OpenPlanetaryMap, fond LRO WAC (`opm-moon-basemap-v0-1`).
+- Mars : OpenPlanetaryMap, mosaïque couleur Viking (`opm-mars-basemap-v0-1`).
+- Les tuiles ne sont demandées que pour la face sous la caméra, avec un cache LRU. En cas d’échec, les tuiles locales `public/textures/tiles/` restent le repli.
+
 ## Procédural
 
 Triton, Charon, la Voie lactée, les galaxies, les nébuleuses, le champ d’étoiles de fond, les halos et le micro-relief (bruit 3D sous trois rayons) sont dessinés par shaders ou par canvas. Le micro-détail se superpose aux cartes photographiques ; il ne les remplace pas.

@@ -119,6 +119,12 @@ export function HUD({ nonce }: { nonce: number }) {
               {Math.round(sim.fps)} fps · {sim.draws} dc
             </button>
           </div>
+          {sim.benchNote && (
+            <pre className="pointer-events-none glass absolute left-4 top-36 z-30 max-w-xs whitespace-pre-wrap rounded-2xl p-3 text-[11px] leading-relaxed">
+              {sim.benchOn ? 'Mesure…\n' : 'Banc\n'}
+              {sim.benchNote}
+            </pre>
+          )}
           {sim.profileOpen && (
             <div className="pointer-events-auto glass absolute right-4 top-16 w-56 rounded-2xl p-3 mono text-[11px] leading-relaxed">
               <div>FPS {sim.fps.toFixed(1)}</div>
