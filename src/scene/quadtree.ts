@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { note } from '../engine/hitch'
 import { deferBitmap } from '../engine/texcache'
 
 /**
@@ -73,9 +74,10 @@ function storeTile(key: string, bitmap: ImageBitmap): void {
   tex.anisotropy = 8
   tex.wrapS = THREE.ClampToEdgeWrapping
   tex.wrapT = THREE.ClampToEdgeWrapping
-  tex.generateMipmaps = true
-  tex.minFilter = THREE.LinearMipmapLinearFilter
+  tex.generateMipmaps = false
+  tex.minFilter = THREE.LinearFilter
   tex.needsUpdate = true
+  note(`tile:${bitmap.width}x${bitmap.height}`)
   slots.push({ key, tex, last: ++clock })
   pending.delete(key)
   evict(key)

@@ -894,6 +894,14 @@ export function boot(view: string): void {
   }
 }
 
+let frameW = 0
+let frameH = 0
+
+export function noteFrameSize(width: number, height: number): void {
+  frameW = width
+  frameH = height
+}
+
 const BENCH_VIEWS = ['system', 'iss', 'earth', 'moon', 'mars', 'jupiter', 'saturn', 'ganymede', 'm31'] as const
 const BENCH_WARMUP = 60
 const BENCH_FRAMES = 300
@@ -989,7 +997,7 @@ function finishBenchStep(name: string): void {
     warmupMaxMs: warm.max * 1000,
   })
   sim.benchNote = benchRows
-    .map((r) => `${r.view} ${r.fps.toFixed(1)} fps · 1% ${r.low.toFixed(1)} · ${r.ms.toFixed(2)} ms · p99 ${r.p99ms.toFixed(2)} · max ${r.maxMs.toFixed(1)} · >16.7 ${r.over16} · >33 ${r.over33} · warmup ${r.warmupFrames} max ${r.warmupMaxMs.toFixed(1)} ms`)
+    .map((r) => `${r.view} ${r.fps.toFixed(1)} fps · 1% ${r.low.toFixed(1)} · ${r.ms.toFixed(2)} ms · p99 ${r.p99ms.toFixed(2)} · max ${r.maxMs.toFixed(1)} · >16.7 ${r.over16} · >33 ${r.over33} · warmup ${r.warmupFrames} max ${r.warmupMaxMs.toFixed(1)} ms · ${frameW}×${frameH}`)
     .join('\n')
   window.__BENCH__ = benchRows.slice()
 }
