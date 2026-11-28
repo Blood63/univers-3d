@@ -26,6 +26,7 @@ const FILES: Record<string, string> = {
   enceladus: 'textures/enceladus.jpg',
   titan: 'textures/titan.jpg',
   cmb: 'textures/cmb.jpg',
+  haumea: 'textures/haumea.jpg',
 }
 
 /** Fast stand-in shown on frame 1. The full map replaces it once decoded. */
@@ -64,6 +65,7 @@ export function loadTextures(onProgress: (ratio: number) => void): Promise<Recor
             'enceladus.jpg',
             'titan.jpg',
             'cmb.jpg',
+            'haumea.jpg',
           ].some((n) => file.endsWith(n))
           const preview = base + previewName
           const finish = (t: THREE.Texture, url: string, bytes: number) => {

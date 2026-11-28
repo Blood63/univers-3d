@@ -451,6 +451,32 @@ Encore pas excellent
 - Les FPS SwiftShader restent entre 5 et 28. Le 60–144 FPS d’un GPU de bureau n’est toujours pas mesuré ici.
 - L’ombre d’une lune n’est visible que lorsqu’elle passe vraiment devant le Soleil vu de la surface. Le cadrage de Jupiter à la date du jour ne montrait pas de transit.
 
+## Cycle profondeur — cartes propres, tuiles, Hauméa, découpage
+
+Avant : Ganymède et Callisto montraient la planche USGS (grille et toponymes). Aucune tuile de proximité. Hauméa était un ellipsoïde gris. Le script principal pesait 1,32 Mo, post-traitement inclus. La qualité Mobile était lue après la création de la scène, donc les comptes d’étoiles restaient ceux du preset Élevé.
+
+Après : `tsc` propre, build Vite ~5 s. Découpage : `index` 322 Ko, `three` 688 Ko, `post` 315 Ko chargé à part, worker 62 Ko. Headless, 0 erreur.
+
+- Ganymède : albédo régional sans grille ni noms, rainures claires. Callisto : champ de cratères circulaires, plus de planche annotée.
+- Terre, Lune, Mars : 8 tuiles 1536² (4×2) par corps. Sous 2,4 rayons la tuile face à la caméra remplace la carte globale. En dessous de la taille d’un texel, un octave de bruit supplémentaire empêche le flou.
+- Hauméa : glace, fractures et tache rouge sombre, sur l’ellipsoïde 1161 × 852 × 513 km.
+- La scène mobile choisit la qualité basse avant de construire les géométries. Le preset bas ne passe plus par FXAA. Échap retire le focus du champ de recherche, pour que R et H répondent ensuite.
+- Contrôles rejoués : panoramique, inclinaison, zoom, R, Ctrl+K, visite « Puissances de Dix ». Zéro erreur console.
+
+Défauts corrigés
+
+1. Le pincement allouait un tableau à chaque mouvement de doigt.
+2. `createUniverse` lisait la qualité avant que le mobile ne soit détecté.
+3. Les tuiles USGS annotées restaient l’albédo de Ganymède et Callisto.
+
+Encore pas excellent
+
+- Les tuiles sont un agrandissement net de la carte 3840, pas une photo plus résolue. Le détail sous le texel est procédural.
+- Ganymède n’a pas les rainures fines de Galileo : elles ont été sacrifiées avec la grille.
+- Hauméa, de loin, reste une petite boule pâle ; la tache rouge et l’aplatissement se lisent surtout de près.
+- SwiftShader : quelques images par seconde à une vingtaine. Pas de mesure 60–144 FPS sur GPU de bureau.
+- Le chunk `three` (688 Ko) est encore chargé tout de suite, parce que le canvas en a besoin dès la première image.
+
 ## Navigation — vue aérienne libre
 
 La caméra ne se verrouille plus sur un astre. Le mode par défaut au lancement est une vue carte, du même genre qu’un globe ou une carte de stratégie : un pivot, une distance, un cap et une inclinaison.

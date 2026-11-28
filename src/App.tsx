@@ -1,14 +1,14 @@
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { Bloom, BrightnessContrast, ChromaticAberration, EffectComposer, FXAA, SMAA, ToneMapping, Vignette } from '@react-three/postprocessing'
-import { ToneMappingMode } from 'postprocessing'
-import { Suspense, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { HUD } from './hud/HUD'
 import { bindInput, boot, frame } from './engine/runtime'
-import { sim } from './engine/state'
+import { detectMobile, sim } from './engine/state'
 import { createUniverse, type UniverseHandle } from './scene/world'
 import { loadTextures } from './scene/textures'
 import { applyAnisotropy, startHdUpgrade } from './engine/texcache'
+
+const PostFX = lazy(() => import('./scene/PostFX'))
 
 const glBridge: { current: THREE.WebGLRenderer | null } = { current: null }
 export function capturePng(): void {
@@ -30,6 +30,10 @@ function Scene({ textures }: { textures: Record<string, THREE.Texture> }) {
 
   useEffect(() => {
     glBridge.current = gl
+    if (detectMobile()) {
+      sim.quality = 'low'
+      sim.bloom = 0.28
+    }
     const built = createUniverse(textures)
     scene.add(built.object)
     handle.current = built.handle
@@ -97,19 +101,11 @@ function Scene({ textures }: { textures: Record<string, THREE.Texture> }) {
     gl.info.reset()
   }, 2)
 
-  const aa = sim.quality === 'ultra' ? 'smaa' : sim.quality === 'low' ? 'none' : 'fxaa'
   void tick
   return (
-    <>
-      <EffectComposer multisampling={0} frameBufferType={THREE.HalfFloatType}>
-        <Bloom intensity={sim.bloom} luminanceThreshold={1.14} mipmapBlur luminanceSmoothing={0.25} radius={0.68} />
-        <ChromaticAberration ref={ca as never} offset={new THREE.Vector2(0, 0)} radialModulation modulationOffset={0.2} />
-        {aa === 'smaa' ? <SMAA /> : <FXAA />}
-        <Vignette eskil={false} offset={0.16} darkness={0.62} />
-        <BrightnessContrast brightness={(sim.exposure - 1) * 0.45} contrast={0.05} />
-        <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
-      </EffectComposer>
-    </>
+    <Suspense fallback={null}>
+      <PostFX ca={ca} />
+    </Suspense>
   )
 }
 

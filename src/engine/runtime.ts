@@ -868,6 +868,7 @@ export function bindInput(canvas: HTMLCanvasElement): () => void {
       sim.help = false
       if (sim.tourId) stopTour()
       document.exitPointerLock?.()
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
     } else if (e.code === 'Digit1') sim.timeScale = 0
     else if (e.code === 'Digit2') {
       sim.timeScale = 1
@@ -931,18 +932,21 @@ export function bindInput(canvas: HTMLCanvasElement): () => void {
   const pointerDownTouch = (e: PointerEvent) => {
     touches.set(e.pointerId, { x: e.clientX, y: e.clientY })
     if (touches.size === 2) {
-      const [a, b] = [...touches.values()]
-      pinchDist = Math.hypot(a.x - b.x, a.y - b.y)
-      pinchAng = Math.atan2(b.y - a.y, b.x - a.x)
+      const pair = pinchPair(touches)
+      if (pair) {
+        pinchDist = Math.hypot(pair.ax - pair.bx, pair.ay - pair.by)
+        pinchAng = Math.atan2(pair.by - pair.ay, pair.bx - pair.ax)
+      }
     }
   }
   const pointerMoveTouch = (e: PointerEvent) => {
     if (!touches.has(e.pointerId)) return
     touches.set(e.pointerId, { x: e.clientX, y: e.clientY })
     if (sim.mode !== 'aerial' || touches.size < 2) return
-    const [a, b] = [...touches.values()]
-    const dist = Math.hypot(a.x - b.x, a.y - b.y)
-    const ang = Math.atan2(b.y - a.y, b.x - a.x)
+    const pair = pinchPair(touches)
+    if (!pair) return
+    const dist = Math.hypot(pair.ax - pair.bx, pair.ay - pair.by)
+    const ang = Math.atan2(pair.by - pair.ay, pair.bx - pair.ax)
     if (pinchDist > 0) wheelZoom += (pinchDist - dist) * 1.6
     let dAng = ang - pinchAng
     if (dAng > Math.PI) dAng -= TAU
@@ -986,6 +990,26 @@ export function bindInput(canvas: HTMLCanvasElement): () => void {
     window.removeEventListener('pointerup', pointerUp)
     window.removeEventListener('mouseup', pointerUp)
   }
+}
+
+function pinchPair(touches: Map<number, { x: number; y: number }>): { ax: number; ay: number; bx: number; by: number } | null {
+  let ax = 0
+  let ay = 0
+  let n = 0
+  let bx = 0
+  let by = 0
+  for (const p of touches.values()) {
+    if (n === 0) {
+      ax = p.x
+      ay = p.y
+    } else {
+      bx = p.x
+      by = p.y
+      return { ax, ay, bx, by }
+    }
+    n += 1
+  }
+  return null
 }
 
 const invQuat = new THREE.Quaternion()
