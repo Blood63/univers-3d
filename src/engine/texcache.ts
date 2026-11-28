@@ -208,17 +208,38 @@ export function gpuBusy(): boolean {
   return uploadQueue.length > 0 || upgrading.size > 0
 }
 
-/** Spread GPU uploads. One HD map fills the frame; a few small previews can share it. */
-export function pumpGpuUploads(): void {
-  let cost = 0
-  const budget = 480_000
-  while (uploadQueue.length && cost < budget) {
-    const next = uploadQueue[0]
-    const pixels = next.kind === 'bitmap' ? next.bitmap.width * next.bitmap.height : next.kind === 'replace' ? 8_000_000 : 512 * 512
-    if (cost > 0 && cost + pixels > budget) break
-    cost += pixels
-    applyUpload(uploadQueue.shift()!)
+let frameStamp = 0
+
+export function markFrameStart(): void {
+  frameStamp = performance.now()
+}
+
+/** Drop mip levels above 2048 so one compressed upload stays inside a 16 ms frame. */
+function capCompressed(tex: THREE.Texture, maxEdge = 2048): void {
+  const mips = tex.mipmaps
+  if (!mips || mips.length < 2) return
+  const edge = (mip: (typeof mips)[number]) => ('width' in mip ? Math.max(mip.width, mip.height) : 0)
+  let index = 0
+  while (index < mips.length - 1 && edge(mips[index]) > maxEdge) index += 1
+  if (index === 0 || !('width' in mips[index])) return
+  const kept = mips.slice(index)
+  tex.mipmaps = kept
+  const image = tex.image as { width?: number; height?: number }
+  const base = kept[0]
+  if (image && 'width' in base) {
+    image.width = base.width
+    image.height = base.height
   }
+}
+
+/** One texture per frame, and never once the frame has already spent its budget. */
+export function pumpGpuUploads(): void {
+  if (uploadQueue.length === 0) return
+  if (performance.now() - frameStamp > 8) return
+  const job = uploadQueue.shift()
+  if (!job) return
+  if (job.kind === 'replace') capCompressed(job.tex)
+  applyUpload(job)
 }
 
 export function deferBitmap(url: string, apply: (bitmap: ImageBitmap) => void, onError: () => void): void {

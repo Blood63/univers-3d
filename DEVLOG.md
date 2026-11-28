@@ -617,3 +617,11 @@ Même machine, 300 Hz, après la PR #8. Colonnes : fps / 1 % low / p99 ms. Le ma
 ISS : max 18,3 ms, une image au-dessus de 16,7 ms. Échauffement max : system 19,3 ms, iss 12,6 ms, les autres ≤ 8 ms.
 
 Cette image de 18 ms est l’upload GPU (ou la recompilation du shader terrestre) d’une carte KTX2 de la Terre, ou une tuile GIBS, qui arrive après les 60 images d’échauffement. La vue ISS est à ~400 km, donc le quadtree demande des tuiles, et les cinq KTX2 (jour, nuit, nuages, normale, spéculaire) mettent plus de 60 images à transcoder. Le correctif précharge ces cartes dès le début de la vue, prolonge l’échauffement tant qu’un transcodage ou un upload est en cours (plafond 240 images, plus l’image qui suit la fin de la file), et ne demande aucune tuile pendant le banc. Les aperçus du premier écran sont envoyés par plus petits paquets, et les quatre premières images (compilation du composer) ne sont pas comptées dans l’échauffement de `system`.
+
+## Re-bench RTX 5070, 28 novembre 2026, 11:52
+
+Après la PR #9, 300 Hz. Les neuf vues tiennent l’objectif dans la fenêtre mesurée : 1 % low entre 175 et 294, p99 ≤ 5,7 ms, aucune image au-dessus de 16,7 ms. L’ISS donne 298 fps, 1 % low 222, p99 4,5 ms.
+
+Le warm-up, lui, saccade encore. warmupMaxMs : system 68 ms (premier affichage), iss 40,4 ms, earth 14,9 ms, m31 10,7 ms, les autres sous le seuil.
+
+La passe suivante ne rallonge plus l’échauffement : il reste à 60 images. `KHR_parallel_shader_compile` est activé avant tout programme. Le post-traitement ne s’affiche qu’une fois chaque passe compilée à part, via `compileAsync`, en idle. Les cartes KTX2 de la Terre et les tuiles GIBS z0/z1 partent dès le boot, une texture par image, et seulement si la frame a encore moins de 8 ms. Le plus grand niveau au-dessus de 2048 n’est pas envoyé, pour que cet envoi tienne dans le budget. Un vol déclenche le chargement de la cible au départ, pas à l’arrivée. Le DPR est fixé dès le départ et ne change pas pendant 8 s ni pendant le banc.

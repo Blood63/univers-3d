@@ -66,6 +66,37 @@ export interface Cover {
   scaleV: number
 }
 
+function storeTile(key: string, bitmap: ImageBitmap): void {
+  const tex = new THREE.Texture(bitmap)
+  tex.flipY = false
+  tex.colorSpace = THREE.SRGBColorSpace
+  tex.anisotropy = 8
+  tex.wrapS = THREE.ClampToEdgeWrapping
+  tex.wrapT = THREE.ClampToEdgeWrapping
+  tex.generateMipmaps = true
+  tex.minFilter = THREE.LinearMipmapLinearFilter
+  tex.needsUpdate = true
+  slots.push({ key, tex, last: ++clock })
+  pending.delete(key)
+  evict(key)
+}
+
+/** Basemap around the ISS ground track: GIBS z0 (2×1) and z1 (3×2), one decode at a time. */
+export function preloadLowEarthTiles(): void {
+  const jobs: [number, number, number][] = []
+  for (let x = 0; x < 2; x++) jobs.push([0, x, 0])
+  for (let y = 0; y < 2; y++) for (let x = 0; x < 3; x++) jobs.push([1, x, y])
+  for (const [z, x, y] of jobs) {
+    const key = `earth/${z}/${x}/${y}`
+    if (slots.some((s) => s.key === key) || pending.has(key) || failed.has(key)) continue
+    pending.add(key)
+    deferBitmap(urlFor('earth', z, x, y), (bitmap) => storeTile(key, bitmap), () => {
+      pending.delete(key)
+      failed.add(key)
+    })
+  }
+}
+
 export function requestCover(body: QuadBody, uu: number, vv: number, ratio: number, mobile: boolean): Cover | null {
   const cap = mobile ? 2 : body === 'earth' ? 5 : 4
   const z = zoomFor(ratio, cap)
@@ -109,27 +140,10 @@ export function requestCover(body: QuadBody, uu: number, vv: number, ratio: numb
   }
   if (!pending.has(key) && !failed.has(key)) {
     pending.add(key)
-    deferBitmap(
-      urlFor(body, z, x, y),
-      (bitmap) => {
-        const tex = new THREE.Texture(bitmap)
-        tex.flipY = false
-        tex.colorSpace = THREE.SRGBColorSpace
-        tex.anisotropy = 8
-        tex.wrapS = THREE.ClampToEdgeWrapping
-        tex.wrapT = THREE.ClampToEdgeWrapping
-        tex.generateMipmaps = true
-        tex.minFilter = THREE.LinearMipmapLinearFilter
-        tex.needsUpdate = true
-        slots.push({ key, tex, last: ++clock })
-        pending.delete(key)
-        evict(key)
-      },
-      () => {
-        pending.delete(key)
-        failed.add(key)
-      },
-    )
+    deferBitmap(urlFor(body, z, x, y), (bitmap) => storeTile(key, bitmap), () => {
+      pending.delete(key)
+      failed.add(key)
+    })
   }
   return null
 }

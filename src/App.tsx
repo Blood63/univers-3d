@@ -6,7 +6,7 @@ import { beginWarp, bindInput, boot, frame } from './engine/runtime'
 import { detectMobile, sim } from './engine/state'
 import { createUniverse, type UniverseHandle } from './scene/world'
 import { loadTextures } from './scene/textures'
-import { applyAnisotropy, bindRenderer, startHdUpgrade } from './engine/texcache'
+import { applyAnisotropy, bindRenderer, markFrameStart, startHdUpgrade } from './engine/texcache'
 
 const PostFX = lazy(() => import('./scene/PostFX'))
 
@@ -105,6 +105,7 @@ function Scene({ textures }: { textures: Record<string, THREE.Texture> }) {
   }, [gl])
 
   useFrame((_, dt) => {
+    markFrameStart()
     if (!sim.ready || !handle.current) return
     const w = gl.domElement.clientWidth
     const h = gl.domElement.clientHeight
@@ -140,16 +141,21 @@ function Scene({ textures }: { textures: Record<string, THREE.Texture> }) {
 export default function App() {
   const [textures, setTextures] = useState<Record<string, THREE.Texture> | null>(null)
   const [progress, setProgress] = useState(0)
-  const [dpr, setDpr] = useState(1)
+  const [dpr, setDpr] = useState(() => {
+    const mobile = window.matchMedia('(pointer: coarse)').matches || window.innerWidth < 860
+    const cap = mobile ? 1 : 1.25
+    return Math.min(window.devicePixelRatio || 1, cap)
+  })
   const ui = 0
 
   useEffect(() => {
     let alive = true
+    const started = performance.now()
     loadTextures((r) => alive && setProgress(r)).then((t) => alive && setTextures(t))
     let lowFor = 0
     let highFor = 0
     const id = window.setInterval(() => {
-      if (sim.benchOn) return
+      if (sim.benchOn || performance.now() - started < 8000) return
       const cap = sim.quality === 'ultra' ? 1.5 : sim.quality === 'high' ? 1.25 : sim.quality === 'medium' ? 1 : 0.9
       const floor = sim.quality === 'low' ? 0.75 : 0.85
       if (sim.fps > 0 && sim.fps < 55) {
@@ -200,6 +206,7 @@ export default function App() {
           }}
           camera={{ fov: 58, near: 0.08, far: 1e32, position: [0, 0, 0] }}
           onCreated={({ gl }) => {
+            gl.getContext().getExtension('KHR_parallel_shader_compile')
             gl.setClearColor('#000005')
             if (textures) applyAnisotropy(textures, gl.capabilities.getMaxAnisotropy())
           }}
