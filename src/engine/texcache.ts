@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js'
+import { note } from './hitch'
 
 interface Slot {
   key: string
@@ -111,9 +112,11 @@ const upgrading = new Set<string>()
 const bitmapLoader = new THREE.ImageBitmapLoader()
 bitmapLoader.setOptions({ imageOrientation: 'flipY', premultiplyAlpha: 'none', colorSpaceConversion: 'none' })
 
+type Mip = { data: ArrayBufferView; width: number; height: number }
+
 type Upload =
   | { kind: 'bitmap'; key: string; url: string; bitmap: ImageBitmap; colorSpace: THREE.ColorSpace }
-  | { kind: 'replace'; key: string; url: string; tex: THREE.Texture; bytes: number }
+  | { kind: 'mip'; key: string; url: string; bytes: number; tex: THREE.CompressedTexture; mip: Mip; colorSpace: THREE.ColorSpace; done: boolean }
   | { kind: 'custom'; run: () => void }
 
 const uploadQueue: Upload[] = []
@@ -184,23 +187,45 @@ function applyUpload(job: Upload): void {
     upgrading.delete(job.key)
     return
   }
-  job.tex.anisotropy = Math.max(job.tex.anisotropy, 8)
-  job.tex.wrapS = THREE.ClampToEdgeWrapping
-  job.tex.wrapT = THREE.ClampToEdgeWrapping
-  job.tex.needsUpdate = true
-  const old = slot?.tex
-  if (slot) {
-    slot.tex = job.tex
-    slot.url = job.url
-    slot.bytes = job.bytes
-    slot.resident = true
-    slot.last = ++clock
+  const mip = job.mip
+  let tex = slot?.tex
+  if (!tex || !(tex as THREE.CompressedTexture).isCompressedTexture) {
+    tex = new THREE.CompressedTexture([mip as never], mip.width, mip.height, job.tex.format, job.tex.type)
+    tex.colorSpace = job.colorSpace
+    tex.wrapS = THREE.ClampToEdgeWrapping
+    tex.wrapT = THREE.ClampToEdgeWrapping
+    tex.generateMipmaps = false
+    tex.minFilter = THREE.LinearFilter
+    tex.magFilter = THREE.LinearFilter
+    tex.anisotropy = 8
+    tex.needsUpdate = true
+    const old = slot?.tex
+    if (slot) {
+      slot.tex = tex
+      slot.url = job.url
+      slot.bytes = job.bytes
+      slot.resident = true
+      slot.last = ++clock
+    } else {
+      registerTexture(job.key, job.url, tex, job.bytes)
+    }
+    emit(job.key, tex)
+    if (old && old !== tex) old.dispose()
   } else {
-    registerTexture(job.key, job.url, job.tex, job.bytes)
+    const compressed = tex as THREE.CompressedTexture
+    compressed.mipmaps = [mip as never]
+    const image = compressed.image as { width: number; height: number }
+    image.width = mip.width
+    image.height = mip.height
+    compressed.needsUpdate = true
+    if (slot) {
+      slot.url = job.url
+      slot.bytes = job.bytes
+      slot.last = ++clock
+    }
   }
-  emit(job.key, job.tex)
-  if (old && old !== job.tex) old.dispose()
-  upgrading.delete(job.key)
+  note(`mip:${job.key}:${mip.width}x${mip.height}`)
+  if (job.done) upgrading.delete(job.key)
 }
 
 /** True while a KTX2 transcode or a GPU upload is still in flight. */
@@ -238,8 +263,31 @@ export function pumpGpuUploads(): void {
   if (performance.now() - frameStamp > 8) return
   const job = uploadQueue.shift()
   if (!job) return
-  if (job.kind === 'replace') capCompressed(job.tex)
   applyUpload(job)
+}
+
+function queueCompressed(key: string, url: string, tex: THREE.CompressedTexture, bytes: number, colorSpace: THREE.ColorSpace): void {
+  const started = performance.now()
+  capCompressed(tex)
+  const mips = ((tex.mipmaps ?? []) as Mip[]).filter((mip) => mip.width > 0 && mip.data)
+  const ordered = mips.slice().sort((a, b) => a.width * a.height - b.width * b.height)
+  if (ordered.length === 0) {
+    upgrading.delete(key)
+    return
+  }
+  ordered.forEach((mip, index) => {
+    uploadQueue.push({
+      kind: 'mip',
+      key,
+      url,
+      bytes,
+      tex,
+      mip,
+      colorSpace,
+      done: index === ordered.length - 1,
+    })
+  })
+  note(`ktx2:${key}:${(performance.now() - started).toFixed(1)}ms:${ordered.length}`)
 }
 
 export function deferBitmap(url: string, apply: (bitmap: ImageBitmap) => void, onError: () => void): void {
@@ -270,7 +318,7 @@ function applyUpgrade(key: string, jpegUrl: string): void {
   ktx2.load(
     ktx,
     (tex) => {
-      uploadQueue.push({ kind: 'replace', key, url: ktx, tex, bytes: compressedBytes(tex) || tex.image?.width * tex.image?.height || 0 })
+      queueCompressed(key, ktx, tex as THREE.CompressedTexture, compressedBytes(tex) || tex.image?.width * tex.image?.height || 0, colorSpace)
     },
     undefined,
     () => useJpeg(),
