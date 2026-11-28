@@ -37,7 +37,7 @@ Cartes 8k réduites à 3840×1920 pour le chargement progressif (aperçu 512 px,
 
 - `io.jpg` — mosaïque Galileo et Voyager, Wikimedia « Io from Galileo and Voyager missions », domaine public NASA.
 - `europa.jpg` — « Moon Europa color map », CC0.
-- `ganymede.jpg`, `callisto.jpg` — extraits des planches USGS « Controlled photomosaic map » (domaine public). Le graticule et les noms de la planche d’origine ont été conservés tels quels sur la carte source ; le rendu s’en sert comme albédo.
+- `ganymede.jpg`, `callisto.jpg` — albédo dérivé des planches USGS (domaine public), fortement lissé pour retirer le graticule et les noms, puis recraterisé. Ce ne sont plus les planches annotées.
 - `enceladus.jpg` — « Enceladus Color Map », domaine public.
 - `titan.jpg` — mosaïque Cassini « Titan map April 2011 », domaine public.
 - `cmb.jpg` — « Cosmic Microwave Background (Planck-CMB-SMICA) », ESA/Planck, CC BY 4.0. Carte équirectangulaire des anisotropies SMICA, réduite à 3840×1920.

@@ -114,6 +114,10 @@ uniform float uCloudLum;
 uniform vec3 uOcc;
 uniform float uOccR;
 uniform float uHasOcc;
+uniform sampler2D uTile;
+uniform vec2 uTileOff;
+uniform vec2 uTileScale;
+uniform float uTileBlend;
 
 float hash13(vec3 p){ return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
 float vnoise(vec3 p){
@@ -151,7 +155,17 @@ void main() {
   float ndl = dot(n, l);
   float dayF = smoothstep(-0.12, 0.18, ndl);
   vec3 day = texture2D(uDay, uv).rgb * uTint;
+  if (uTileBlend > 0.02) {
+    vec2 tuv = (vUv - uTileOff) * uTileScale;
+    if (tuv.x > 0.0 && tuv.x < 1.0 && tuv.y > 0.0 && tuv.y < 1.0) {
+      day = mix(day, texture2D(uTile, tuv).rgb, uTileBlend);
+    }
+  }
+  float texel = max(length(dFdx(vUv)), length(dFdy(vUv))) * 2048.0;
+  float over = smoothstep(1.6, 0.35, texel);
+  float hi = vnoise(np * 96.0);
   day *= mix(1.0, 0.78 + 0.28 * micro2, uClose);
+  day *= mix(1.0, 0.84 + 0.32 * hi, over);
   vec3 nightTex = texture2D(uNight, vUv).rgb;
   float cloud = 0.0;
   if (uHasCloud > 0.5) {

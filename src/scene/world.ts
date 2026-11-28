@@ -33,6 +33,7 @@ import { followTexture, streamTextures } from '../engine/texcache'
 const tmp = v3()
 const tmp2 = v3()
 const q = new THREE.Quaternion()
+const qInv = new THREE.Quaternion()
 const v = new THREE.Vector3()
 const c3 = new THREE.Color()
 const up = new THREE.Vector3(0, 1, 0)
@@ -135,6 +136,9 @@ const whiteTex = (): THREE.DataTexture => {
 
 export function createUniverse(tex: Record<string, THREE.Texture>): { object: THREE.Group; handle: UniverseHandle } {
   const root = new THREE.Group()
+  const tileLoader = new THREE.TextureLoader()
+  const tileCache = new Map<string, THREE.Texture>()
+  const tileWait = new Set<string>()
   const blank = whiteTex()
   const soft = softTexture()
   const moonTex = tex.moon ?? procTex((g, w, h) => paintNoise(g, w, h, '#c8c4bc', '#6e6a64'))
@@ -170,6 +174,7 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
     if (id === 'callisto') return tex.callisto ?? proc.callisto
     if (id === 'encelade') return tex.enceladus ?? proc.encelade
     if (id === 'titan') return tex.titan ?? proc.titan
+    if (id === 'haumea') return tex.haumea ?? blank
     return (proc as Record<string, THREE.Texture>)[id] ?? proc.default
   }
 
@@ -341,6 +346,7 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
     else if (b.id === 'callisto') watchDay('callisto')
     else if (b.id === 'encelade') watchDay('enceladus')
     else if (b.id === 'titan') watchDay('titan')
+    else if (b.id === 'haumea') watchDay('haumea')
     else if (b.id === 'terre') {
       followTexture('earth', (t) => {
         if (node.mat?.uniforms.uDay) node.mat.uniforms.uDay.value = t
@@ -414,6 +420,10 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
           uOcc: { value: new THREE.Vector3() },
           uOccR: { value: 1 },
           uHasOcc: { value: 0 },
+          uTile: { value: blank },
+          uTileOff: { value: new THREE.Vector2() },
+          uTileScale: { value: new THREE.Vector2(4, 2) },
+          uTileBlend: { value: 0 },
           uCloudOff: { value: 0 },
           uTime: { value: 0 },
           uAurora: { value: b.flags?.includes('aurora') ? 1 : 0 },
@@ -986,6 +996,46 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
           const ratio = dist / Math.max(r, 1)
           const edge = ratio < 1.2 ? 1 : ratio > 3 ? 0 : (3 - ratio) / 1.8
           node.mat.uniforms.uClose.value = edge
+        }
+        if (node.mat.uniforms.uTileBlend && (id === 'terre' || id === 'lune' || id === 'mars')) {
+          const ratio = dist / Math.max(r, 1)
+          if (ratio > 2.4) node.mat.uniforms.uTileBlend.value = 0
+          else {
+            qInv.copy(node.group.quaternion).invert()
+            v.set(-node.group.position.x, -node.group.position.y, -node.group.position.z).applyQuaternion(qInv)
+            const vl = v.length() || 1
+            const theta = Math.acos(Math.max(-1, Math.min(1, v.y / vl)))
+            let phi = Math.atan2(v.z, -v.x)
+            if (phi < 0) phi += Math.PI * 2
+            const uu = phi / (Math.PI * 2)
+            const vv = 1 - theta / Math.PI
+            const col = Math.min(3, Math.max(0, Math.floor(uu * 4)))
+            const row = vv >= 0.5 ? 0 : 1
+            const tileName = id === 'terre' ? 'earth' : id === 'lune' ? 'moon' : 'mars'
+            const key = `${tileName}/${col}_${row}`
+            let tile = tileCache.get(key)
+            if (!tile && !tileWait.has(key)) {
+              tileWait.add(key)
+              tileLoader.load(
+                `${import.meta.env.BASE_URL}textures/tiles/${tileName}/${col}_${row}.jpg`,
+                (t) => {
+                  t.colorSpace = THREE.SRGBColorSpace
+                  t.anisotropy = 8
+                  t.wrapS = THREE.ClampToEdgeWrapping
+                  t.wrapT = THREE.ClampToEdgeWrapping
+                  tileCache.set(key, t)
+                  tileWait.delete(key)
+                },
+                undefined,
+                () => tileWait.delete(key),
+              )
+            }
+            if (tile) {
+              node.mat.uniforms.uTile.value = tile
+              ;(node.mat.uniforms.uTileOff.value as THREE.Vector2).set(col / 4, row === 0 ? 0.5 : 0)
+              node.mat.uniforms.uTileBlend.value = ratio < 1.15 ? 1 : (2.4 - ratio) / 1.25
+            } else node.mat.uniforms.uTileBlend.value = 0
+          }
         }
       }
       if (node.atmo && node.atmoMat?.uniforms.uRadius) {
