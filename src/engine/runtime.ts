@@ -853,12 +853,7 @@ export function boot(view: string): void {
   prevCam.z = cam64[2]
   sim.ready = true
   bootWorker()
-  if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('bench') === '1') {
-    sim.benchOn = true
-    benchStep = 0
-    benchRows.length = 0
-    beginBenchView(BENCH_VIEWS[0])
-  }
+  if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('bench') === '1') startBench()
   window.__UNIVERS__ = {
     ready: true,
     setView: (name: string) => {
@@ -890,6 +885,15 @@ const BENCH_VIEWS = ['system', 'iss', 'earth', 'moon', 'mars', 'jupiter', 'satur
 const benchSamples: number[] = []
 const benchRows: { view: string; fps: number; low: number; ms: number; p99ms: number }[] = []
 let benchStep = -1
+
+export function startBench(): void {
+  sim.benchOn = true
+  sim.benchNote = ''
+  benchStep = 0
+  benchRows.length = 0
+  benchSamples.length = 0
+  beginBenchView(BENCH_VIEWS[0])
+}
 
 function beginBenchView(name: string): void {
   if (name === 'system') viewSolarSystem()

@@ -60,7 +60,7 @@ export function breadcrumbs(selectedId: string): Crumb[] {
     chain.push({ id: 'local', label: 'Groupe local', target: 'm31' })
     chain.push({ id: 'mw', label: 'Voie lactée', target: 'mw' })
     if (body.id === 'sgr-a') chain.push({ id: 'centre', label: 'Centre galactique', target: 'sgr-a' })
-    else chain.push({ id: body.id, label: body.name, target: body.id })
+    chain.push({ id: body.id, label: body.name, target: body.id })
     return chain
   }
   if (body.kind === 'galaxy' || body.kind === 'nebula' || body.category === 'phenomene') {

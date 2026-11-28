@@ -547,7 +547,8 @@ Après (cette branche)
 - Chunks : `index` 197 Ko (67 Ko gzip), `vendor` (react, react-dom, R3F) 275 Ko (88 Ko gzip), `three` 688 Ko (178 Ko gzip). Le post-traitement est dans `post` 176 Ko (78 Ko gzip), chargé seulement avec `PostFX`. JS critique gzip ≈ 333 Ko, contre ~410 Ko qui incluait le post.
 - Premier chargement headless : ~0,91 Mo transférés (aperçus JPEG, pas les cartes HD). Les HD ne partent que pour l’astre cadré. Le worker Kepler ne contient plus que les ceintures (0,8 Ko).
 - Lune : théorie de Meeus ch. 47, termes principaux. Le selfcheck compare le 12 avril 1992 à 368 409,7 km et le 28 novembre 2026 à 364 219 km, les deux à ±1 %.
-- Vues headless (SwiftShader, 0 erreur console) : système sans le disque cosmologique, sélection Soleil, fil jusqu’au Soleil ; ISS au premier plan, limbe terrestre bleu et non blanc ; Sgr A* avec le fil « Voie lactée › Centre galactique » ; Pixel 7 avec fiche et calques fermés, fil réduit au dernier niveau, cibles de 44 px.
+- Vues headless (SwiftShader, 0 erreur console) : système sans le disque cosmologique, sélection Soleil, fil jusqu’au Soleil ; ISS au premier plan, limbe terrestre bleu et non blanc ; Sgr A* avec le fil « Voie lactée › Centre galactique › Sagittarius A* » ; Pixel 7 avec fiche et calques fermés, fil réduit au dernier niveau, cibles de 44 px.
+- Occupation HUD, union des boîtes sur une grille de 6 px, même méthode avant (`c54fc71`) et après. PC 1440×900 : 56,2 % → 21,0 %. Pixel 7 412×915 : 95,8 % → 37,0 %. L’audit citait 53 % sur PC. Premier chargement de la vue système, corps des réponses : 28,4 Mo (dont 27,0 Mo de textures) → 1,86 Mo (JS non compressé 1,34 Mo, aperçus 0,47 Mo). Le JS critique gzip du build est 333 Ko, le chunk `post` 78 Ko.
 - Banc : `dt` brut, 300 images par vue, p99, export JSON. Le bloom et le seuil de luminance sont mis à jour chaque frame.
 
 Reste partiel

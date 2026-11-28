@@ -5,7 +5,7 @@ import { ECHELLE_LABEL, altitudeToSlider, breadcrumbs, sliderToAltitude } from '
 import { readPos } from '../astro/ephemeris'
 import { capturePng } from '../App'
 import { applyMute, resumeAudio } from '../engine/audio'
-import { beginWarp, focusBody, refreshBelts, setAltitude, setNav, startTour, stopTour, toggleFollow, toggleScale, viewSolarSystem } from '../engine/runtime'
+import { beginWarp, focusBody, refreshBelts, setAltitude, setNav, startBench, startTour, stopTour, toggleFollow, toggleScale, viewSolarSystem } from '../engine/runtime'
 import { QUALITY_PRESET, labelFrame, sim, type Quality } from '../engine/state'
 import { v3 } from '../astro/math'
 import { Comparator } from './Comparator'
@@ -168,10 +168,10 @@ export function HUD({ nonce }: { nonce: number }) {
             <span className="text-[10px] tracking-[0.14em] text-white/50">1 m</span>
           </label>
 
-          <button className="hud-btn pointer-events-auto absolute left-4 top-28 hidden md:inline-flex" aria-pressed={sim.layersOpen} onClick={() => (sim.layersOpen = !sim.layersOpen)}>
+          <button className={`hud-btn pointer-events-auto absolute ${sim.mobile ? 'left-4 top-24' : 'left-4 top-28'}`} aria-pressed={sim.layersOpen} onClick={() => (sim.layersOpen = !sim.layersOpen)}>
             Calques
           </button>
-          {sim.layersOpen && <aside className="pointer-events-auto absolute left-4 top-40 hidden w-52 md:block">
+          {sim.layersOpen && <aside className={`pointer-events-auto absolute z-40 ${sim.mobile ? 'bottom-28 left-3 right-3 max-h-[46vh] overflow-auto' : 'left-4 top-40 w-52'}`}>
             <div className="glass rounded-2xl p-3">
               <div className="mb-2 text-[10px] tracking-[0.18em] text-white/45">CALQUES</div>
               {(
@@ -251,10 +251,10 @@ export function HUD({ nonce }: { nonce: number }) {
 
           <footer className="pointer-events-auto absolute inset-x-0 bottom-0 z-20 flex flex-col gap-2 p-3 md:p-4">
             <div className="flex flex-wrap justify-center gap-2">
-              <button className="hud-btn" data-on={sim.mode === 'aerial'} onClick={() => setNav('aerial')}>
+              <button className="hud-btn" aria-pressed={sim.mode === 'aerial'} data-on={sim.mode === 'aerial'} onClick={() => setNav('aerial')}>
                 Vue aérienne
               </button>
-              <button className="hud-btn" data-on={sim.mode === 'freefly'} onClick={() => setNav('freefly')}>
+              <button className="hud-btn" aria-pressed={sim.mode === 'freefly'} data-on={sim.mode === 'freefly'} onClick={() => setNav('freefly')}>
                 Vol libre
               </button>
               <button className="hud-btn" onClick={() => viewSolarSystem()}>
@@ -336,6 +336,9 @@ export function HUD({ nonce }: { nonce: number }) {
               </button>
               <button className="hud-btn" aria-pressed={sim.credits} onClick={() => (sim.credits = !sim.credits)}>
                 Crédits
+              </button>
+              <button className="hud-btn" aria-pressed={sim.benchOn} onClick={() => startBench()}>
+                Banc
               </button>
               {sim.benchNote && (
                 <button
