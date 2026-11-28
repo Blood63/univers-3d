@@ -558,3 +558,18 @@ Reste partiel
 - L’échelle affichée près d’un objet de la coquille (Sgr A*) suit maintenant la distance réelle, mais le rendu reste sur la coquille.
 - Les dépendances majeures n’ont pas été montées, comme demandé.
 - Les scores Lighthouse du site déployé sont relevés après la publication Pages. Ils ne sont pas estimés dans ce journal tant que la mesure n’a pas tourné.
+
+### Mesure du site publié (28 novembre 2026)
+
+Pages : run `46128458652` réussi. `https://blood63.github.io/univers-3d/` répond 200 et sert `index-zywrzqrD.js` (viewport sans `user-scalable=no`).
+
+Lighthouse 12, Chrome headless de cette machine (SwiftShader, pas un GPU de bureau). Les scores de performance ne sont donc pas comparables à ceux de l’audit s’il a tourné sur un vrai GPU. Le poids transféré, lui, ne dépend pas du GPU.
+
+| | Perf | Accessibilité | Bonnes pratiques | SEO | Poids |
+| --- | --- | --- | --- | --- | --- |
+| Audit, PC | 64 | 69 | — | — | 26,8 Mo |
+| Audit, mobile | 44 | 65 | — | — | 26,8 Mo |
+| Mesuré, PC | 60 | 94 | 96 | 90 | 0,90 Mo |
+| Mesuré, mobile | 55 | 100 | 96 | 90 | 0,90 Mo |
+
+Le détail réseau du run PC : JS gzip 66 + 175 + 87 Ko (index, three, vendor), post 77 Ko chargé juste après, aperçus JPEG 0,46 Mo, deux woff2 latin (Outfit 14 Ko, IBM Plex Mono 15 Ko). Aucune carte HD au premier écran. TBT mesuré ici : 23,5 s PC et 10,6 s mobile. Le TBT PC est dominé par le thread principal sous SwiftShader (45 s) ; je ne le présente pas comme une régression réelle sur un GPU.
