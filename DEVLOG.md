@@ -477,6 +477,32 @@ Encore pas excellent
 - SwiftShader : quelques images par seconde à une vingtaine. Pas de mesure 60–144 FPS sur GPU de bureau.
 - Le chunk `three` (688 Ko) est encore chargé tout de suite, parce que le canvas en a besoin dès la première image.
 
+## Cycle boucle — sillons, quadtree NASA, banc, robustesse
+
+Avant : Ganymède sans rainures. Les tuiles proches étaient un simple agrandissement local 4×2. Pas de banc intégré. Un onglet caché pouvait rendre une frame au `dt` plafonné, et une tuile GIBS hors grille répondait 400.
+
+Après : build propre, script d’entrée 326 Ko. Headless SwiftShader, banc `?bench=1` (48 frames par vue) : système 12,7 fps (1 % bas 10), ISS 10,9, Terre 10,6, Lune 11,1, Mars 11,1, Jupiter 11,3, Saturne 10,8, Ganymède 11,4, M31 12,4. Temps de frame moyen 79–94 ms. Ce sont les chiffres du GPU logiciel, pas ceux d’une carte dédiée.
+
+- Sillons de Ganymède : bandes claires parallèles et quelques rainures qui les coupent, peintes sur l’albédo sans grille.
+- Quadtree distant : Terre via NASA GIBS Blue Marble (niveaux mesurés 2×1, 3×2, 5×3, 10×5, 20×10, 40×20, pour ne plus demander d’index 400). Lune et Mars via OpenPlanetaryMap (LRO WAC et Viking), en Web Mercator, échantillonné dans le shader. Cache de 14 tuiles, dispose à l’éviction. Repli sur les tuiles locales si le réseau refuse.
+- `?bench=1` enchaîne neuf vues et affiche fps moyen, fps du pire centile et temps de frame. Le tableau reste dans `window.__BENCH__`.
+- Onglet caché : la simulation s’arrête (`visibilitychange`), donc pas de saut de temps au retour. Perte du contexte WebGL : rechargement propre.
+- Rejoué sans erreur console : les six visites, le vol libre, le suivi qui s’éteint au panoramique, sept cibles de catégories différentes, le mode photo, l’orrery, le comparateur, les quatre qualités, les douze calques, un redimensionnement mobile puis bureau.
+
+Défauts corrigés
+
+1. La grille GIBS n’est pas une puissance de deux : les colonnes inventées renvoyaient HTTP 400.
+2. Les tuiles lointaines n’étaient pas plafonnées : un long vol en remplissait la mémoire. Le LRU en garde 14.
+3. Ganymède avait perdu ses rainures avec le graticule.
+
+Encore pas excellent
+
+- Les sillons sont procéduraux, pas la mosaïque Galileo des sulci.
+- Le quadtree s’arrête au niveau 5 (Terre) ou 4 (Lune, Mars). En dessous, le détail reste du bruit.
+- OpenPlanetaryMap est un service tiers : s’il ne répond pas, on retombe sur les tuiles locales.
+- Le banc SwiftShader tourne autour de 11 fps. Le chiffre utile est celui que le propriétaire lira sur son GPU avec `?bench=1`.
+- Le chunk Three.js reste sur le chemin de démarrage.
+
 ## Navigation — vue aérienne libre
 
 La caméra ne se verrouille plus sur un astre. Le mode par défaut au lancement est une vue carte, du même genre qu’un globe ou une carte de stratégie : un pivot, une distance, un cap et une inclinaison.

@@ -47,6 +47,20 @@ function Scene({ textures }: { textures: Record<string, THREE.Texture> }) {
       sim.ready = true
     }
     const canvas = gl.domElement
+    const onLost = (e: Event) => {
+      e.preventDefault()
+      sim.contextLost = true
+    }
+    const onRestored = () => {
+      sim.contextLost = false
+      window.location.reload()
+    }
+    const onVis = () => {
+      sim.hidden = document.hidden
+    }
+    canvas.addEventListener('webglcontextlost', onLost)
+    canvas.addEventListener('webglcontextrestored', onRestored)
+    document.addEventListener('visibilitychange', onVis)
     const unbind = bindInput(canvas)
     const onUp = (e: PointerEvent) => {
       if (Math.abs(sim.dragX) + Math.abs(sim.dragY) > 6) return
@@ -64,6 +78,9 @@ function Scene({ textures }: { textures: Record<string, THREE.Texture> }) {
     const pump = window.setInterval(() => setTick((n) => n + 1), 400)
     return () => {
       unbind()
+      canvas.removeEventListener('webglcontextlost', onLost)
+      canvas.removeEventListener('webglcontextrestored', onRestored)
+      document.removeEventListener('visibilitychange', onVis)
       canvas.removeEventListener('pointerup', onUp)
       window.clearInterval(pump)
       scene.remove(built.object)

@@ -29,6 +29,7 @@ import { beltAsteroids, beltKuiper, bodyQuaternion, probePaths, screenStreak } f
 import { cam64, labelFrame, sim } from '../engine/state'
 import { createCosmos } from './cosmos'
 import { followTexture, streamTextures } from '../engine/texcache'
+import { requestCover, tileCacheCount, type QuadBody } from './quadtree'
 
 const tmp = v3()
 const tmp2 = v3()
@@ -424,6 +425,9 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
           uTileOff: { value: new THREE.Vector2() },
           uTileScale: { value: new THREE.Vector2(4, 2) },
           uTileBlend: { value: 0 },
+          uMerc: { value: 0 },
+          uTileZ: { value: 1 },
+          uTileXY: { value: new THREE.Vector2() },
           uCloudOff: { value: 0 },
           uTime: { value: 0 },
           uAurora: { value: b.flags?.includes('aurora') ? 1 : 0 },
@@ -999,7 +1003,7 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
         }
         if (node.mat.uniforms.uTileBlend && (id === 'terre' || id === 'lune' || id === 'mars')) {
           const ratio = dist / Math.max(r, 1)
-          if (ratio > 2.4) node.mat.uniforms.uTileBlend.value = 0
+          if (ratio > 2.6 || sim.hidden) node.mat.uniforms.uTileBlend.value = 0
           else {
             qInv.copy(node.group.quaternion).invert()
             v.set(-node.group.position.x, -node.group.position.y, -node.group.position.z).applyQuaternion(qInv)
@@ -1009,32 +1013,47 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
             if (phi < 0) phi += Math.PI * 2
             const uu = phi / (Math.PI * 2)
             const vv = 1 - theta / Math.PI
-            const col = Math.min(3, Math.max(0, Math.floor(uu * 4)))
-            const row = vv >= 0.5 ? 0 : 1
-            const tileName = id === 'terre' ? 'earth' : id === 'lune' ? 'moon' : 'mars'
-            const key = `${tileName}/${col}_${row}`
-            let tile = tileCache.get(key)
-            if (!tile && !tileWait.has(key)) {
-              tileWait.add(key)
-              tileLoader.load(
-                `${import.meta.env.BASE_URL}textures/tiles/${tileName}/${col}_${row}.jpg`,
-                (t) => {
-                  t.colorSpace = THREE.SRGBColorSpace
-                  t.anisotropy = 8
-                  t.wrapS = THREE.ClampToEdgeWrapping
-                  t.wrapT = THREE.ClampToEdgeWrapping
-                  tileCache.set(key, t)
-                  tileWait.delete(key)
-                },
-                undefined,
-                () => tileWait.delete(key),
-              )
+            const quadName: QuadBody = id === 'terre' ? 'earth' : id === 'lune' ? 'moon' : 'mars'
+            const remote = requestCover(quadName, uu, vv, ratio, sim.quality === 'low')
+            const blend = ratio < 1.1 ? 1 : (2.6 - ratio) / 1.5
+            if (remote) {
+              node.mat.uniforms.uTile.value = remote.tex
+              node.mat.uniforms.uMerc.value = remote.merc
+              node.mat.uniforms.uTileZ.value = remote.z
+              ;(node.mat.uniforms.uTileXY.value as THREE.Vector2).set(remote.x, remote.y)
+              ;(node.mat.uniforms.uTileOff.value as THREE.Vector2).set(remote.offU, remote.offV)
+              ;(node.mat.uniforms.uTileScale.value as THREE.Vector2).set(remote.scaleU, remote.scaleV)
+              node.mat.uniforms.uTileBlend.value = blend
+            } else {
+              const col = Math.min(3, Math.max(0, Math.floor(uu * 4)))
+              const row = vv >= 0.5 ? 0 : 1
+              const key = `${quadName}/${col}_${row}`
+              let tile = tileCache.get(key)
+              if (!tile && !tileWait.has(key)) {
+                tileWait.add(key)
+                tileLoader.load(
+                  `${import.meta.env.BASE_URL}textures/tiles/${quadName}/${col}_${row}.jpg`,
+                  (t) => {
+                    t.colorSpace = THREE.SRGBColorSpace
+                    t.anisotropy = 8
+                    t.wrapS = THREE.ClampToEdgeWrapping
+                    t.wrapT = THREE.ClampToEdgeWrapping
+                    tileCache.set(key, t)
+                    tileWait.delete(key)
+                  },
+                  undefined,
+                  () => tileWait.delete(key),
+                )
+              }
+              if (tile) {
+                node.mat.uniforms.uTile.value = tile
+                node.mat.uniforms.uMerc.value = 0
+                ;(node.mat.uniforms.uTileOff.value as THREE.Vector2).set(col / 4, row === 0 ? 0.5 : 0)
+                ;(node.mat.uniforms.uTileScale.value as THREE.Vector2).set(4, 2)
+                node.mat.uniforms.uTileBlend.value = blend * 0.85
+              } else node.mat.uniforms.uTileBlend.value = 0
             }
-            if (tile) {
-              node.mat.uniforms.uTile.value = tile
-              ;(node.mat.uniforms.uTileOff.value as THREE.Vector2).set(col / 4, row === 0 ? 0.5 : 0)
-              node.mat.uniforms.uTileBlend.value = ratio < 1.15 ? 1 : (2.4 - ratio) / 1.25
-            } else node.mat.uniforms.uTileBlend.value = 0
+            sim.tileCount = tileCacheCount() + tileCache.size
           }
         }
       }
