@@ -654,3 +654,19 @@ Après la PR #12. Fenêtre mesurée propre sur les neuf vues : `maxMs` ≤ 8,4, 
 Le 24,5 ms n’est pas une moyenne. Un seul niveau KTX2 de la Terre, 1920×960, fait environ 1,8 Mo une fois transcodé en BC7. Ce niveau partait dans une image de l’échauffement ISS, parfois seul (~16 ms), parfois avec une tuile. Le transcodage reste dans le worker. Le plafond d’envoi passe de 2048 à 1024, donc le plus grand niveau envoyé est 960×480. Un seul fichier KTX2 est en vol, le suivant démarre à l’image d’après. Les tuiles ne génèrent plus leurs mipmaps dans l’image d’upload. Les marques `mip:`, `tile:` et `ktx2-main:` accompagnent un pic dans `window.__HITCHES__`.
 
 La moyenne système, elle, ne venait pas d’une image isolée : la fenêtre mesurée n’a plus aucun pic. Chaque image reconstruisait les 13 orbites (192 échantillons) et les 4 200 astéroïdes, alors qu’à 42 UA un rocher fait moins d’un pixel et que le temps simulé déplace Mercure de bien moins d’un pixel par image. Les orbites ne sont recalculées que si la caméra a bougé, si l’échelle de temps dépasse 64, ou une image sur six. Les ceintures instanciées ne tournent que lorsque la caméra est dans l’anneau, et le mesh est caché si aucun rocher n’est à portée. L’anneau translucide, lui, reste affiché. Le banc indique maintenant la taille du framebuffer (`1920×1080` attendu). L’échauffement reste 60 images.
+
+## Re-bench RTX 5070, 28 novembre 2026, 14:00
+
+Après la PR #13. La fenêtre mesurée est au plafond des 300 Hz sur les neuf vues.
+
+| Vue | fps | 1 % low | p99 | max | over16 |
+| --- | --- | --- | --- | --- | --- |
+| system | ~300 | 244–286 | ≤ 4,1 | ≤ 4,6 | 0 |
+| iss | ~300 | 244–286 | ≤ 4,1 | ≤ 4,6 | 0 |
+| autres | ~300 | 244–286 | ≤ 4,1 | ≤ 4,6 | 0 |
+
+L’échauffement dépasse encore 16,7 ms sur deux vues : system 21,3 ms (première vue, juste après le boot), ISS 31,3 ms (pire que 24,5 puis 15,8). Les autres vues restent ≤ 7,9 ms.
+
+Le plafond à 1024 px n’enlevait pas la cause. Le transcodeur recevait encore le niveau 3840×1920 et renvoyait environ 9,8 Mo au thread principal, et le premier dessin de la Terre plein cadre (atmosphère, nuages, station) n’avait jamais été fait avant le chronomètre. Sur SwiftShader, les premières images après l’arrivée à l’ISS valent deux à trois fois une image installée. Les cartes terrestres sont réencodées avec un plus grand côté de 1024, donc le message du worker tombe sous 0,1 Mo. Avant le banc, et sous le voile de chargement, la vue système puis l’ISS sont dessinées quelques images, sans télécharger de carte ni de tuile. Le chronomètre ne démarre qu’ensuite. L’échauffement reste 60 images.
+
+Chaque ligne du JSON exporté contient `hitches` : pour l’échauffement et pour la mesure, l’image la plus lente, et toute image au-dessus de 16,7 ms, avec l’index d’image, la vue, et les marques (`sim`, `world`, `bodies`, `orbits`, `belts`, `pump`, `post`, `mip`, `tile`, `ktx2-main`, `belts`).

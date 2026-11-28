@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { BODY_BY_ID, BODY_IDS, TOURS } from '../astro/catalog'
 import { displayRadius, initEphemeris, readPos, realRadius, trajectorySamples, writeDisplay, writeWorld } from '../astro/ephemeris'
 import { AU, J2000, TAU, bandOf, clamp, smoother, v3, ymdToJD, type V3 } from '../astro/math'
-import { logHitch, notesAround } from './hitch'
+import { lastSpans, logHitch, note, notesAround, takeHitches, type Hitch } from './hitch'
 import { preloadLowEarthTiles } from '../scene/quadtree'
 import { requestMaps } from '../scene/textures'
 import { echelleOf } from '../astro/scales'
@@ -766,6 +766,7 @@ function bootWorker(): void {
     if (data.type === 'belts' && data.asteroids && data.kuiper) {
       beltAsteroids = data.asteroids
       beltKuiper = data.kuiper
+      note('belts')
     }
     if (data.type === 'paths' && data.packs) {
       for (const p of data.packs) probePaths[p.id] = p.data
@@ -864,9 +865,8 @@ export function boot(view: string): void {
   prevCam.x = cam64[0]
   prevCam.y = cam64[1]
   prevCam.z = cam64[2]
-  sim.ready = true
+  sim.booted = true
   bootWorker()
-  if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('bench') === '1') startBench()
   window.__UNIVERS__ = {
     ready: true,
     setView: (name: string) => {
@@ -919,10 +919,13 @@ type BenchRow = {
   warmupFrames: number
   warmupMs: number
   warmupMaxMs: number
+  hitches: Hitch[]
 }
 const benchRows: BenchRow[] = []
 let benchStep = -1
 let benchWarm = 0
+let warmPeak = 0
+let measPeak = 0
 
 export function startBench(): void {
   sim.benchOn = true
@@ -960,6 +963,20 @@ function beginBenchView(name: string): void {
   benchSamples.length = 0
   warmupSamples.length = 0
   benchWarm = 0
+  warmPeak = 0
+  measPeak = 0
+  takeHitches()
+}
+
+function keptHitches(all: Hitch[]): Hitch[] {
+  const keep = all.filter((hit) => hit.ms > 16.7)
+  for (const phase of ['warmup', 'measure'] as const) {
+    let worst: Hitch | null = null
+    for (const hit of all) if (hit.phase === phase && (!worst || hit.ms > worst.ms)) worst = hit
+    const peak = worst
+    if (peak && !keep.some((hit) => hit.phase === peak.phase && hit.frame === peak.frame)) keep.push(peak)
+  }
+  return keep
 }
 
 function summarize(samples: number[]): { avg: number; max: number; over16: number; over33: number } {
@@ -995,6 +1012,7 @@ function finishBenchStep(name: string): void {
     warmupFrames: warmupSamples.length,
     warmupMs: warm.avg * 1000,
     warmupMaxMs: warm.max * 1000,
+    hitches: keptHitches(takeHitches()),
   })
   sim.benchNote = benchRows
     .map((r) => `${r.view} ${r.fps.toFixed(1)} fps · 1% ${r.low.toFixed(1)} · ${r.ms.toFixed(2)} ms · p99 ${r.p99ms.toFixed(2)} · max ${r.maxMs.toFixed(1)} · >16.7 ${r.over16} · >33 ${r.over33} · warmup ${r.warmupFrames} max ${r.warmupMaxMs.toFixed(1)} ms · ${frameW}×${frameH}`)
@@ -1034,12 +1052,18 @@ export function frame(dt: number, camera: THREE.PerspectiveCamera): void {
   for (const fn of syncs) fn(h)
   if (sim.benchOn && !sim.warpActive && benchStep >= 0 && benchStep < BENCH_VIEWS.length) {
     const raw = Math.max(dt, 0.0001)
-    if (raw > 0.0167) {
+    const phase = benchWarm < BENCH_WARMUP ? 'warmup' : 'measure'
+    const frameIndex = phase === 'warmup' ? benchWarm : benchSamples.length
+    const ms = raw * 1000
+    if (ms > 12 || ms >= (phase === 'warmup' ? warmPeak : measPeak)) {
+      if (phase === 'warmup') warmPeak = Math.max(warmPeak, ms)
+      else measPeak = Math.max(measPeak, ms)
       logHitch({
-        ms: raw * 1000,
+        ms,
         view: BENCH_VIEWS[benchStep] ?? '?',
-        phase: benchWarm < BENCH_WARMUP ? 'warmup' : 'measure',
-        notes: notesAround(),
+        phase,
+        frame: frameIndex,
+        notes: [...lastSpans(), ...notesAround()],
       })
     }
     if (benchWarm < BENCH_WARMUP) {

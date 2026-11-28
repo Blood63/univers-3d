@@ -11,17 +11,47 @@ export function notesAround(now = performance.now()): string[] {
   return recent.filter((entry) => now - entry.t < 80).map((entry) => entry.label)
 }
 
-export type Hitch = { ms: number; view: string; phase: string; notes: string[] }
+export type Hitch = {
+  ms: number
+  view: string
+  phase: 'warmup' | 'measure'
+  frame: number
+  notes: string[]
+}
 
 const hitches: Hitch[] = []
 
 export function logHitch(hit: Hitch): void {
   hitches.push(hit)
-  if (hitches.length > 24) hitches.shift()
   const list = (window as unknown as { __HITCHES__?: Hitch[] }).__HITCHES__ ?? []
   list.push(hit)
+  if (list.length > 40) list.splice(0, list.length - 40)
   ;(window as unknown as { __HITCHES__?: Hitch[] }).__HITCHES__ = list
-  console.info('[hitch]', hit.ms.toFixed(1), hit.phase, hit.view, hit.notes.join(' | '))
+  if (hit.ms > 16.7) console.info('[hitch]', hit.ms.toFixed(1), hit.phase, hit.view, hit.frame, hit.notes.join(' | '))
+}
+
+export function takeHitches(): Hitch[] {
+  const out = hitches.slice()
+  hitches.length = 0
+  return out
+}
+
+const spans: { label: string; ms: number }[] = []
+let committed: string[] = []
+
+/** Record a slice of the frame that just ran. The next frame's dt includes it. */
+export function span(label: string, ms: number): void {
+  if (ms < 0.3) return
+  spans.push({ label, ms })
+}
+
+export function commitSpans(): void {
+  committed = spans.map((entry) => `${entry.label}:${entry.ms.toFixed(1)}`)
+  spans.length = 0
+}
+
+export function lastSpans(): string[] {
+  return committed
 }
 
 let resolvePost = () => {}

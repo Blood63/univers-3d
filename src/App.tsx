@@ -2,11 +2,11 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { HUD } from './hud/HUD'
-import { beginWarp, bindInput, boot, frame, noteFrameSize } from './engine/runtime'
+import { beginWarp, bindInput, boot, focusBody, frame, noteFrameSize, startBench, viewSolarSystem } from './engine/runtime'
 import { detectMobile, sim } from './engine/state'
 import { createUniverse, type UniverseHandle } from './scene/world'
 import { loadTextures } from './scene/textures'
-import { note, postReady } from './engine/hitch'
+import { commitSpans, note, postReady, span } from './engine/hitch'
 import { applyAnisotropy, bindRenderer, markFrameStart, startHdUpgrade } from './engine/texcache'
 
 const PostFX = lazy(() => import('./scene/PostFX'))
@@ -21,7 +21,7 @@ export function capturePng(): void {
   a.click()
 }
 
-function Scene({ textures }: { textures: Record<string, THREE.Texture> }) {
+function Scene({ textures, onLive }: { textures: Record<string, THREE.Texture>; onLive: () => void }) {
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera
   const gl = useThree((s) => s.gl)
   const scene = useThree((s) => s.scene)
@@ -62,7 +62,9 @@ function Scene({ textures }: { textures: Record<string, THREE.Texture> }) {
         } catch (err) {
           const message = err instanceof Error ? err.stack ?? err.message : String(err)
           document.documentElement.dataset.booterr = message.slice(0, 500)
+          sim.settle = false
           sim.ready = true
+          onLive()
         }
       })
     const canvas = gl.domElement
@@ -109,6 +111,8 @@ function Scene({ textures }: { textures: Record<string, THREE.Texture> }) {
   }, [camera, gl, scene, textures])
 
   const fpsWindow = useRef({ frames: 0, stamp: performance.now() })
+  const settle = useRef(0)
+  const postMark = useRef(0)
   useEffect(() => {
     gl.info.autoReset = false
   }, [gl])
@@ -116,15 +120,35 @@ function Scene({ textures }: { textures: Record<string, THREE.Texture> }) {
   useFrame((_, dt) => {
     markFrameStart()
     noteFrameSize(gl.domElement.width, gl.domElement.height)
-    if (!sim.ready || !handle.current) return
+    if (!sim.booted || !handle.current) return
     const w = gl.domElement.clientWidth
     const h = gl.domElement.clientHeight
+    const t0 = performance.now()
     frame(dt, camera)
+    span('sim', performance.now() - t0)
+    const t1 = performance.now()
     handle.current.update(dt, camera, w, h)
+    span('world', performance.now() - t1)
     if (ca.current) ca.current.offset.set(sim.warp * 0.004, sim.warp * 0.001)
+    if (sim.settle) {
+      const n = settle.current
+      settle.current = n + 1
+      if (n === 1) focusBody('iss', true)
+      if (n === 7) viewSolarSystem()
+      if (n === 10) {
+        viewSolarSystem()
+        sim.settle = false
+        sim.ready = true
+        onLive()
+        if (new URLSearchParams(location.search).get('bench') === '1') startBench()
+      }
+    }
+    postMark.current = performance.now()
   })
 
   useFrame(() => {
+    if (postMark.current > 0) span('post', performance.now() - postMark.current)
+    commitSpans()
     sim.draws = gl.info.render.calls
     const bucket = fpsWindow.current
     bucket.frames += 1
@@ -151,6 +175,7 @@ function Scene({ textures }: { textures: Record<string, THREE.Texture> }) {
 export default function App() {
   const [textures, setTextures] = useState<Record<string, THREE.Texture> | null>(null)
   const [progress, setProgress] = useState(0)
+  const [live, setLive] = useState(false)
   const [dpr, setDpr] = useState(() => {
     const mobile = window.matchMedia('(pointer: coarse)').matches || window.innerWidth < 860
     const cap = mobile ? 1 : 1.25
@@ -222,9 +247,15 @@ export default function App() {
           }}
         >
           <Suspense fallback={null}>
-            <Scene textures={textures} />
+            <Scene textures={textures} onLive={() => setLive(true)} />
           </Suspense>
         </Canvas>
+      )}
+      {textures && !live && (
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-[#000005]">
+          <div className="text-xs tracking-[0.35em] text-[#9ec5ff]">UNIVERS</div>
+          <div className="mono text-[11px] text-white/50">Préparation du ciel</div>
+        </div>
       )}
       {textures && <HUD nonce={ui} />}
       <div
