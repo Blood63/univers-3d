@@ -211,7 +211,7 @@ export function createCosmos(cmbMap?: THREE.Texture): Cosmos {
   const update = (echelle: number, sunDistM: number) => {
     const ly = sunDistM / LY
     const au = sunDistM / AU
-    const showOort = sim.layers.oort && echelle >= 3 && echelle <= 6 && au > 80
+    const showOort = sim.layers.oort && echelle >= 4 && echelle <= 6 && au > 400
     oort.visible = showOort
     if (showOort) {
       shellPoint(oortWorld, oortPos, oortN)

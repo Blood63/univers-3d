@@ -27,6 +27,8 @@ jobs:
           cache: npm
       - name: Install
         run: npm ci
+      - name: Self-check
+        run: npx --yes vite-node scripts/selfcheck.ts
       - name: Typecheck and build
         run: npm run build
       - name: Upload artifact

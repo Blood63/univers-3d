@@ -2,7 +2,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { HUD } from './hud/HUD'
-import { bindInput, boot, frame } from './engine/runtime'
+import { beginWarp, bindInput, boot, frame } from './engine/runtime'
 import { detectMobile, sim } from './engine/state'
 import { createUniverse, type UniverseHandle } from './scene/world'
 import { loadTextures } from './scene/textures'
@@ -33,6 +33,7 @@ function Scene({ textures }: { textures: Record<string, THREE.Texture> }) {
     if (detectMobile()) {
       sim.quality = 'low'
       sim.bloom = 0.28
+      sim.bloomUser = 0.28
     }
     const built = createUniverse(textures)
     scene.add(built.object)
@@ -69,7 +70,7 @@ function Scene({ textures }: { textures: Record<string, THREE.Texture> }) {
       if (id) {
         sim.selected = id
         if (!e.shiftKey) {
-          import('./engine/runtime').then((m) => m.beginWarp(id))
+          beginWarp(id)
         } else if (!sim.rulerA || sim.rulerA === id) sim.rulerA = id
         else sim.rulerB = id
       }

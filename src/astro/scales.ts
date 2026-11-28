@@ -51,20 +51,49 @@ export interface Crumb {
   target: string
 }
 
-export function breadcrumbs(nearestId: string, echelle: number): Crumb[] {
+export function breadcrumbs(selectedId: string): Crumb[] {
+  const body = BODY_BY_ID[selectedId] ?? BODY_BY_ID.soleil
   const chain: Crumb[] = [{ id: 'univers', label: 'Univers observable', target: 'cmb' }]
-  if (echelle <= 9) chain.push({ id: 'laniakea', label: 'Laniakea', target: 'laniakea' })
-  if (echelle <= 8) chain.push({ id: 'vierge', label: 'Amas de la Vierge', target: 'm87' })
-  if (echelle <= 7) chain.push({ id: 'local', label: 'Groupe local', target: 'm31' })
-  if (echelle <= 6) chain.push({ id: 'mw', label: 'Voie lactée', target: 'mw' })
-  if (echelle <= 5) chain.push({ id: 'orion', label: 'Bras d’Orion', target: 'soleil' })
-  if (echelle <= 4) chain.push({ id: 'sys', label: 'Système solaire', target: 'soleil' })
-  const body = BODY_BY_ID[nearestId]
-  if (body && echelle <= 3) {
-    const parent = body.parent ? BODY_BY_ID[body.parent] : undefined
-    if (parent && parent.id !== 'soleil') chain.push({ id: parent.id, label: parent.name, target: parent.id })
-    if (body.id !== 'soleil') chain.push({ id: body.id, label: body.name, target: body.id })
+  const ly = body.sky?.[2]
+  if (body.kind === 'blackhole' || body.kind === 'pulsar' || body.id === 'sgr-a') {
+    chain.push({ id: 'laniakea', label: 'Laniakea', target: 'laniakea' })
+    chain.push({ id: 'local', label: 'Groupe local', target: 'm31' })
+    chain.push({ id: 'mw', label: 'Voie lactée', target: 'mw' })
+    if (body.id === 'sgr-a') chain.push({ id: 'centre', label: 'Centre galactique', target: 'sgr-a' })
+    else chain.push({ id: body.id, label: body.name, target: body.id })
+    return chain
   }
+  if (body.kind === 'galaxy' || body.kind === 'nebula' || body.category === 'phenomene') {
+    chain.push({ id: 'laniakea', label: 'Laniakea', target: 'laniakea' })
+    if (ly === undefined || ly < 8e6) chain.push({ id: 'local', label: 'Groupe local', target: 'm31' })
+    chain.push({ id: body.id, label: body.name, target: body.id })
+    return chain
+  }
+  if (body.kind === 'star' && ly !== undefined) {
+    chain.push({ id: 'laniakea', label: 'Laniakea', target: 'laniakea' })
+    chain.push({ id: 'local', label: 'Groupe local', target: 'm31' })
+    chain.push({ id: 'mw', label: 'Voie lactée', target: 'mw' })
+    if (ly < 5000) chain.push({ id: 'orion', label: 'Bras d’Orion', target: 'soleil' })
+    chain.push({ id: body.id, label: body.name, target: body.id })
+    return chain
+  }
+  chain.push({ id: 'laniakea', label: 'Laniakea', target: 'laniakea' })
+  chain.push({ id: 'local', label: 'Groupe local', target: 'm31' })
+  chain.push({ id: 'mw', label: 'Voie lactée', target: 'mw' })
+  chain.push({ id: 'sys', label: 'Système solaire', target: 'soleil' })
+  if (body.id === 'soleil') {
+    chain.push({ id: 'soleil', label: 'Soleil', target: 'soleil' })
+    return chain
+  }
+  const parents: Crumb[] = []
+  const seen = new Set<string>()
+  let cur: typeof body | undefined = body
+  while (cur && cur.id !== 'soleil' && !seen.has(cur.id)) {
+    seen.add(cur.id)
+    parents.unshift({ id: cur.id, label: cur.name, target: cur.id })
+    cur = cur.parent ? BODY_BY_ID[cur.parent] : undefined
+  }
+  chain.push(...parents)
   return chain
 }
 

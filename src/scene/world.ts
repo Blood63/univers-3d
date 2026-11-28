@@ -29,6 +29,7 @@ import { beltAsteroids, beltKuiper, bodyQuaternion, probePaths, screenStreak } f
 import { cam64, labelFrame, sim } from '../engine/state'
 import { createCosmos } from './cosmos'
 import { followTexture, streamTextures } from '../engine/texcache'
+import { requestMaps } from './textures'
 import { requestCover, tileCacheCount, type QuadBody } from './quadtree'
 
 const tmp = v3()
@@ -950,14 +951,14 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
     sunLight.position.copy(sunRender)
     if (sunLight.position.lengthSq() > 1) sunLight.position.normalize()
 
-    skyMat.uniforms.uFade.value = sim.band === 'galactique' || sim.band === 'intergalactique' || sim.band === 'interstellaire' ? 0.35 : 1
+    skyMat.uniforms.uFade.value = sim.echelle <= 3 ? 0.04 : sim.echelle <= 5 ? 0.45 : 0.9
     readPos('mw', tmp2, false)
     const gcx = tmp2.x - cam64[0]
     const gcy = tmp2.y - cam64[1]
     const gcz = tmp2.z - cam64[2]
     const gdist = Math.hypot(gcx, gcy, gcz)
     const inside = gdist < 45000 * LY
-    sky.visible = inside
+    sky.visible = inside && sim.echelle > 3
 
     let shownBodies = 0
     for (const id of BODY_IDS) {
@@ -977,6 +978,8 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
         const k = shell / dist
         node.group.position.set(dx * k, dy * k, dz * k)
         node.group.scale.setScalar(b.kind === 'blackhole' ? 1 : Math.max(shell * Math.tan(Math.atan(r / dist)), 8))
+        if (sim.altitude < 80 * AU && id !== sim.selected && id !== sim.target) node.group.visible = false
+        else if (b.kind !== 'blackhole') node.group.visible = id === 'mw' ? !inside : true
       } else {
         const spherical = b.kind === 'planet' || b.kind === 'moon' || b.kind === 'dwarf' || b.kind === 'star' || b.kind === 'pulsar'
         dist = placeGroup(id, node.group, spherical ? r : b.kind === 'comet' ? Math.max(r, 800) : 1)
@@ -1073,10 +1076,6 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
         const pxR = (angR / ((sim.fov * Math.PI) / 180)) * Math.max(h, 1)
         if (node.ringMat.uniforms.uSparkle) node.ringMat.uniforms.uSparkle.value = pxR > 80 ? 1 : 0
       }
-      if (node.glow && b.kind === 'star') {
-        const minS = Math.max(r * 5, dist * 0.02)
-        node.glow.scale.setScalar(minS / Math.max(node.group.scale.x, 1))
-      }
       if (node.mesh && (b.kind === 'planet' || b.kind === 'moon' || b.kind === 'dwarf' || b.kind === 'star')) {
         const ang = 2 * Math.atan(r / Math.max(dist, 1))
         const px = (ang / ((sim.fov * Math.PI) / 180)) * Math.max(h, 1)
@@ -1084,11 +1083,24 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
         node.mesh.visible = showMesh
         if (node.rings) node.rings.visible = px > 5
         if (node.atmo && node.atmoMat?.uniforms.uRadius) node.atmo.visible = px > 7
+        if (node.atmo && !node.atmoMat?.uniforms.uRadius) node.atmo.visible = px > 40
         if (node.clouds) node.clouds.visible = px > 6
-        if (node.glow) node.glow.visible = px > 2.2 || id === sim.selected
+        if (node.glow) {
+          const mat = node.glow.material as THREE.SpriteMaterial
+          const wide = sim.echelle <= 3
+          node.glow.visible = !wide && !showMesh && (px > 0.4 || id === sim.selected)
+          mat.opacity = wide ? 0 : 0.9
+          if (!wide) {
+            const angPx = (10 / Math.max(h, 1)) * ((sim.fov * Math.PI) / 180)
+            const minS = Math.max(r * 2.2, dist * Math.tan(angPx))
+            node.glow.scale.setScalar(Math.min(minS, r * 6) / Math.max(node.group.scale.x, 1e-6))
+          }
+        }
+        if (id === 'soleil' && sim.echelle <= 3) node.group.visible = false
+        if (showMesh && px > 12 && (id === sim.selected || id === sim.nearestId)) requestMaps(id)
       }
+      if (sim.echelle >= 8 && sim.selected === 'cmb') requestMaps('cmb')
       if (b.kind === 'galaxy') {
-        node.group.visible = id === 'mw' ? !inside : true
         if (id !== 'mw') {
           node.group.lookAt(0, 0, 0)
           node.group.rotateX(0.62)
@@ -1126,6 +1138,7 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
         const angC = 2 * Math.atan(Math.max(r, 12) / Math.max(dist, 1))
         const pxC = (angC / ((sim.fov * Math.PI) / 180)) * Math.max(h, 1)
         node.group.visible = pxC > 1.3 || id === sim.selected || id === sim.nearestId
+        if (id === 'iss' && (id === sim.selected || id === sim.target)) requestMaps('terre')
       }
       if (b.kind === 'nebula') {
         const angN = 2 * Math.atan(r / Math.max(dist, 1))
@@ -1243,6 +1256,7 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
 
     const showOrbits =
       sim.layers.orbits &&
+      sim.echelle >= 3 &&
       (sim.band === 'systeme' || sim.band === 'planetaire' || sim.scaleMode === 'orrery') &&
       !(sim.nearestId === 'soleil' && sim.nearestGap < displayRadius('soleil') * 12)
     for (const [id, line] of orbits) {
