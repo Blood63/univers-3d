@@ -437,7 +437,10 @@ export function beginWarp(id: string): void {
   sim.target = id
   if (id === 'iss') issComposed = true
   requestMaps(id)
-  if (id === 'iss' || BODY_BY_ID[id]?.parent === 'terre') requestMaps('terre')
+  if (id === 'iss' || BODY_BY_ID[id]?.parent === 'terre') {
+    requestMaps('terre')
+    preloadLowEarthTiles()
+  }
   readPos(id, pB, true)
   const startQuat = camQuat.clone()
   desiredCamera(id, pA)
@@ -860,8 +863,6 @@ export function boot(view: string): void {
   prevCam.x = cam64[0]
   prevCam.y = cam64[1]
   prevCam.z = cam64[2]
-  requestMaps('terre')
-  preloadLowEarthTiles()
   sim.ready = true
   bootWorker()
   if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('bench') === '1') startBench()
@@ -946,6 +947,7 @@ function beginBenchView(name: string): void {
   }
   const body = preload[name]
   if (body) requestMaps(body)
+  if (name === 'iss') preloadLowEarthTiles()
   benchSamples.length = 0
   warmupSamples.length = 0
   benchWarm = 0
