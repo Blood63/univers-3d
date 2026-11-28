@@ -232,6 +232,97 @@ function placeL2(jd: number, phase: number, into: V3): V3 {
   return into
 }
 
+/** Meeus ch. 47, termes principaux. Distance à ~0,1 % près (exemple 1992-04-12). */
+function placeMoon(jd: number, into: V3): V3 {
+  const T = (jd - 2451545.0) / 36525
+  const deg = Math.PI / 180
+  const wrap = (x: number) => {
+    let y = x % 360
+    if (y < 0) y += 360
+    return y
+  }
+  const Lp = wrap(218.3164477 + 481267.88123421 * T - 0.0015786 * T * T)
+  const D = wrap(297.8501921 + 445267.1114034 * T - 0.0018819 * T * T)
+  const M = wrap(357.5291092 + 35999.0502909 * T - 0.0001536 * T * T)
+  const Mp = wrap(134.9633964 + 477198.8675055 * T + 0.0087414 * T * T)
+  const F = wrap(93.272095 + 483202.0175233 * T - 0.0036539 * T * T)
+  const E = 1 - 0.002516 * T - 0.0000074 * T * T
+  const arg = (d: number, m: number, mp: number, f: number) => (d * D + m * M + mp * Mp + f * F) * deg
+  let lon = Lp
+  const lonTerms: [number, number, number, number, number, number][] = [
+    [0, 0, 1, 0, 6.288774, 0],
+    [2, 0, -1, 0, 1.274027, 0],
+    [2, 0, 0, 0, 0.658314, 0],
+    [0, 0, 2, 0, 0.213616, 0],
+    [0, 1, 0, 0, -0.185596, 1],
+    [0, 0, 0, 2, -0.114336, 0],
+    [2, 0, -2, 0, 0.058793, 0],
+    [2, -1, -1, 0, 0.057212, 1],
+    [2, 0, 1, 0, 0.05332, 0],
+    [2, -1, 0, 0, 0.045874, 1],
+    [0, 1, -1, 0, 0.041024, 1],
+    [1, 0, 0, 0, -0.034718, 0],
+    [0, 1, 1, 0, -0.030465, 1],
+    [2, 0, 0, -2, 0.015326, 0],
+    [0, 0, 1, 2, -0.012528, 0],
+    [0, 0, 1, -2, 0.01098, 0],
+    [4, 0, -1, 0, 0.010034, 0],
+    [0, 0, 3, 0, 0.008548, 0],
+  ]
+  for (const [d, m, mp, f, c, e] of lonTerms) {
+    const ee = e === 0 ? 1 : E
+    lon += c * ee * Math.sin(arg(d, m, mp, f))
+  }
+  let lat = 0
+  const latTerms: [number, number, number, number, number][] = [
+    [0, 0, 0, 1, 5.128189],
+    [0, 0, 1, 1, 0.280606],
+    [0, 0, 1, -1, 0.277693],
+    [2, 0, 0, -1, 0.173238],
+    [2, 0, -1, 1, 0.055413],
+    [2, 0, -1, -1, 0.046272],
+    [2, 0, 0, 1, 0.032573],
+    [0, 0, 2, 1, 0.017198],
+    [2, 0, 1, -1, 0.009267],
+    [0, 0, 2, -1, 0.008823],
+  ]
+  for (const [d, m, mp, f, c] of latTerms) lat += c * Math.sin(arg(d, m, mp, f))
+  let dist = 385000.56
+  for (const [d, m, mp, f, c, e] of [
+    [0, 0, 1, 0, -20905.355, 0],
+    [2, 0, -1, 0, -3699.111, 0],
+    [2, 0, 0, 0, -2955.968, 0],
+    [0, 0, 2, 0, -569.925, 0],
+    [0, 1, 0, 0, -3.149, 1],
+    [2, 0, -2, 0, 246.158, 0],
+    [2, -1, -1, 0, -152.138, 1],
+    [2, 0, 1, 0, -170.733, 0],
+    [2, -1, 0, 0, -204.586, 1],
+    [0, 1, -1, 0, -129.62, 1],
+    [1, 0, 0, 0, 108.743, 0],
+    [0, 1, 1, 0, 104.755, 1],
+    [2, 0, 0, -2, 10.321, 0],
+    [0, 0, 3, 0, -23.21, 0],
+    [4, 0, -1, 0, -45.099, 0],
+    [0, 0, 1, -2, -55.173, 0],
+  ] as [number, number, number, number, number, number][]) {
+    const ee = e === 0 ? 1 : E
+    dist += c * ee * Math.cos(arg(d, m, mp, f))
+  }
+  const rad = dist * 1000
+  const lonRad = lon * deg
+  const beta = lat * deg
+  const cosB = Math.cos(beta)
+  const x = rad * cosB * Math.cos(lonRad)
+  const ye = rad * cosB * Math.sin(lonRad)
+  const ze = rad * Math.sin(beta)
+  helio('terre', jd, tmpD)
+  into.x = tmpD.x + x
+  into.y = tmpD.y + ze
+  into.z = tmpD.z - ye
+  return into
+}
+
 export function helio(id: string, jd: number, into: V3): V3 {
   if (id === 'soleil') return setV(into, 0, 0, 0)
   const idx = BODY_INDEX[id]
@@ -266,6 +357,7 @@ export function helio(id: string, jd: number, into: V3): V3 {
     const phase = id === 'gaia' ? 2.1 : id === 'euclid' ? 4.2 : 0
     return placeL2(jd, phase, into)
   }
+  if (id === 'lune') return placeMoon(jd, into)
   if (id === 'apollo11') {
     helio('lune', jd, into)
     const mx = into.x
@@ -480,10 +572,15 @@ export function selfCheck(): string[] {
   helio('neptune', 2451545.0, p)
   const n = len(p) / AU
   if (n < 28 || n > 32) errors.push(`Neptune J2000 = ${n.toFixed(2)} UA`)
-  helio('lune', 2451545.0, p)
-  helio('terre', 2451545.0, tmpA)
-  const md = Math.hypot(p.x - tmpA.x, p.y - tmpA.y, p.z - tmpA.z)
-  if (Math.abs(md - 384400e3) / 384400e3 > 0.08) errors.push(`Lune = ${(md / 1000).toFixed(0)} km`)
+  helio('lune', 2448724.5, p)
+  helio('terre', 2448724.5, tmpA)
+  const md1992 = Math.hypot(p.x - tmpA.x, p.y - tmpA.y, p.z - tmpA.z) / 1000
+  if (Math.abs(md1992 - 368409.7) / 368409.7 > 0.01) errors.push(`Lune 1992-04-12 = ${md1992.toFixed(0)} km`)
+  const jdAudit = Date.UTC(2026, 10, 28) / 86400000 + 2440587.5
+  helio('lune', jdAudit, p)
+  helio('terre', jdAudit, tmpA)
+  const mdNow = Math.hypot(p.x - tmpA.x, p.y - tmpA.y, p.z - tmpA.z) / 1000
+  if (Math.abs(mdNow - 364219) / 364219 > 0.01) errors.push(`Lune 2026-11-28 = ${mdNow.toFixed(0)} km (réf. 364219)`)
   helio('voyager1', ymdToJD(2026, 1, 1), p)
   const v1 = len(p) / AU
   if (v1 < 140 || v1 > 200) errors.push(`Voyager 1 = ${v1.toFixed(1)} UA`)

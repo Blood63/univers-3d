@@ -106,34 +106,40 @@ export function queueHd(key: string, url: string): void {
 }
 
 /** Decode the full-resolution maps after the first frame and swap them in. */
-export function startHdUpgrade(quality: string): void {
-  if (quality === 'low' || hdQueue.length === 0) return
+const upgrading = new Set<string>()
+
+/** Swap one map for its full-resolution file. No-op if that URL is already bound. */
+export function upgradeTexture(key: string, url: string): void {
+  const prev = slots.find((s) => s.key === key)
+  if (upgrading.has(key) || (prev && prev.url === url)) return
+  upgrading.add(key)
   const loader = new THREE.TextureLoader()
-  const batch = hdQueue.splice(0, hdQueue.length)
-  for (const job of batch) {
-    loader.load(job.url, (nt) => {
-      const prev = slots.find((s) => s.key === job.key)
-      nt.colorSpace = prev?.tex.colorSpace ?? THREE.SRGBColorSpace
-      nt.anisotropy = Math.max(prev?.tex.anisotropy ?? 8, 8)
-      nt.wrapS = THREE.ClampToEdgeWrapping
-      nt.wrapT = THREE.ClampToEdgeWrapping
-      nt.generateMipmaps = true
-      nt.minFilter = THREE.LinearMipmapLinearFilter
-      if (prev) {
-        prev.tex = nt
-        prev.url = job.url
-        prev.bytes = 3840 * 1920 * 3
-        prev.resident = true
-        prev.last = ++clock
-      } else {
-        registerTexture(job.key, job.url, nt, 3840 * 1920 * 3)
-      }
-      const old = prev?.tex
-      emit(job.key, nt)
-      if (old && old !== nt) old.dispose()
-    })
-  }
+  loader.load(url, (nt) => {
+    const slot = slots.find((s) => s.key === key)
+    nt.colorSpace = slot?.tex.colorSpace ?? THREE.SRGBColorSpace
+    nt.anisotropy = Math.max(slot?.tex.anisotropy ?? 8, 8)
+    nt.wrapS = THREE.ClampToEdgeWrapping
+    nt.wrapT = THREE.ClampToEdgeWrapping
+    nt.generateMipmaps = true
+    nt.minFilter = THREE.LinearMipmapLinearFilter
+    const old = slot?.tex
+    if (slot) {
+      slot.tex = nt
+      slot.url = url
+      slot.bytes = 3840 * 1920 * 3
+      slot.resident = true
+      slot.last = ++clock
+    } else {
+      registerTexture(key, url, nt, 3840 * 1920 * 3)
+    }
+    emit(key, nt)
+    if (old && old !== nt) old.dispose()
+    upgrading.delete(key)
+  })
 }
+
+/** Kept so callers stay valid. HD maps are requested per visible body. */
+export function startHdUpgrade(_quality: string): void {}
 
 export function streamTextures(distanceLy: number): void {
   if (!shed && distanceLy > 1800) {

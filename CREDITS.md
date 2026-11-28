@@ -1,6 +1,13 @@
 # Crédits et licences
 
-Les textures photographiques sont redistribuées dans `public/textures/` avec leur licence d’origine. Le reste du ciel (bras spiraux, nébuleuses, étoiles de fond, anneaux fins, lunes sans carte libre satisfaisante) est généré procéduralement dans l’application.
+Le code de l’application est sous licence MIT (voir `LICENSE`). Les cartes photographiques restent sous leur licence d’origine et ne sont pas couvertes par le MIT.
+
+L’application affiche ces mentions dans le panneau Crédits. Les textures photographiques sont redistribuées dans `public/textures/` avec leur licence d’origine. Le reste du ciel (bras spiraux, nébuleuses, étoiles de fond, anneaux fins, lunes sans carte libre satisfaisante) est généré procéduralement dans l’application.
+
+Attribution obligatoire :
+
+- Solar System Scope — cartes planétaires, CC BY 4.0 — https://www.solarsystemscope.com/textures/
+- ESA / Planck Collaboration — fond diffus cosmologique SMICA, CC BY 4.0
 
 ## Domaine public — NASA, via les exemples three.js (r170)
 

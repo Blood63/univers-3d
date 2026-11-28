@@ -1,5 +1,8 @@
-import { BELT_STRIDE, buildBelt, trajectorySamples, writeWorld, WORLD } from './ephemeris'
-import { ymdToJD } from './math'
+/** Ceinture d'astéroïdes et de Kuiper : éléments orbitaux seulement (pas le catalogue). */
+
+const AU = 1.495978707e11
+const YEAR = 365.25 * 86400
+const STRIDE = 9
 
 export interface BeltMsg {
   type: 'belts'
@@ -7,41 +10,46 @@ export interface BeltMsg {
   kuiper: number
 }
 
-export interface PathMsg {
-  type: 'paths'
-  jd: number
+function buildBelt(kind: 'asteroids' | 'kuiper', count: number, seed: number): Float32Array {
+  let s = seed >>> 0
+  const rand = () => {
+    s = (Math.imul(1664525, s) + 1013904223) >>> 0
+    return s / 4294967296
+  }
+  const data = new Float32Array(count * STRIDE)
+  const inner = kind === 'asteroids' ? 2.1 : 32
+  const outer = kind === 'asteroids' ? 3.3 : 50
+  const thick = kind === 'asteroids' ? 0.18 : 0.35
+  const gm = 1.32712440018e20
+  for (let i = 0; i < count; i++) {
+    const au = inner + (outer - inner) * Math.pow(rand(), 0.85)
+    const a = au * AU
+    const rate = Math.sqrt(gm / (a * a * a)) * YEAR
+    const o = i * STRIDE
+    data[o] = a
+    data[o + 1] = rand() * Math.PI * 2
+    data[o + 2] = (rand() - 0.5) * thick
+    data[o + 3] = rand() * Math.PI * 2
+    data[o + 4] = rate
+    const size = kind === 'asteroids' ? 8e3 + rand() * 6e4 : 2e4 + rand() * 1.6e5
+    data[o + 5] = size
+    if (kind === 'asteroids') {
+      data[o + 6] = 0.45 + rand() * 0.35
+      data[o + 7] = 0.38 + rand() * 0.25
+      data[o + 8] = 0.28 + rand() * 0.15
+    } else {
+      data[o + 6] = 0.55 + rand() * 0.3
+      data[o + 7] = 0.62 + rand() * 0.25
+      data[o + 8] = 0.7 + rand() * 0.25
+    }
+  }
+  return data
 }
 
-export interface EphMsg {
-  type: 'ephemeris'
-  jd: number
-  token: number
-}
-
-self.onmessage = (ev: MessageEvent<BeltMsg | PathMsg | EphMsg>) => {
+self.onmessage = (ev: MessageEvent<BeltMsg>) => {
   const msg = ev.data
-  if (msg.type === 'belts') {
-    const asteroids = buildBelt('asteroids', msg.asteroids, 0x51a7)
-    const kuiper = buildBelt('kuiper', msg.kuiper, 0xc0de)
-    self.postMessage({ type: 'belts', asteroids, kuiper, stride: BELT_STRIDE }, [asteroids.buffer, kuiper.buffer])
-    return
-  }
-  if (msg.type === 'paths') {
-    const jd1 = msg.jd
-    const packs = [
-      { id: 'voyager1', data: trajectorySamples('voyager1', ymdToJD(1977, 9, 5), jd1 + 365.25 * 30, 240) },
-      { id: 'voyager2', data: trajectorySamples('voyager2', ymdToJD(1977, 8, 20), jd1 + 365.25 * 30, 280) },
-      { id: 'newhorizons', data: trajectorySamples('newhorizons', ymdToJD(2006, 1, 19), jd1 + 365.25 * 20, 200) },
-      { id: 'pioneer10', data: trajectorySamples('pioneer10', ymdToJD(1972, 3, 2), jd1 + 365.25 * 20, 160) },
-      { id: 'pioneer11', data: trajectorySamples('pioneer11', ymdToJD(1973, 4, 6), jd1 + 365.25 * 20, 180) },
-    ]
-    const transfers = packs.map((p) => p.data.buffer)
-    self.postMessage({ type: 'paths', packs }, transfers)
-    return
-  }
-  if (msg.type === 'ephemeris') {
-    writeWorld(msg.jd)
-    const buf = new Float64Array(WORLD)
-    self.postMessage({ type: 'ephemeris', jd: msg.jd, token: msg.token, buf }, [buf.buffer])
-  }
+  if (msg.type !== 'belts') return
+  const asteroids = buildBelt('asteroids', msg.asteroids, 0x51a7)
+  const kuiper = buildBelt('kuiper', msg.kuiper, 0xc0de)
+  self.postMessage({ type: 'belts', asteroids, kuiper, stride: STRIDE }, [asteroids.buffer, kuiper.buffer])
 }

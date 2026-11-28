@@ -5,7 +5,7 @@ import { ECHELLE_LABEL, altitudeToSlider, breadcrumbs, sliderToAltitude } from '
 import { readPos } from '../astro/ephemeris'
 import { capturePng } from '../App'
 import { applyMute, resumeAudio } from '../engine/audio'
-import { beginWarp, focusBody, refreshBelts, setAltitude, setNav, startTour, stopTour, toggleFollow, toggleScale, viewSolarSystem } from '../engine/runtime'
+import { beginWarp, focusBody, refreshBelts, setAltitude, setNav, startBench, startTour, stopTour, toggleFollow, toggleScale, viewSolarSystem } from '../engine/runtime'
 import { QUALITY_PRESET, labelFrame, sim, type Quality } from '../engine/state'
 import { v3 } from '../astro/math'
 import { Comparator } from './Comparator'
@@ -90,19 +90,22 @@ export function HUD({ nonce }: { nonce: number }) {
     }).slice(0, 12)
   }, [query, cat, tick])
 
-  if (!sim.hud && !sim.photo) return null
+  if (!sim.hud && !sim.photo && !sim.credits) return null
+  const crumbs = breadcrumbs(sim.selected)
+  const shownCrumbs = sim.mobile ? crumbs.slice(-1) : crumbs
 
   return (
-    <div className="pointer-events-none absolute inset-0 text-[13px]">
+    <div className="pointer-events-none absolute inset-0 text-[13px]" data-mobile={sim.mobile ? '1' : '0'}>
+      <h1 className="sr-only">Univers 3D, explorateur du cosmos</h1>
       {sim.hud && (
-        <>
+        <main>
           <header className="pointer-events-auto absolute left-4 top-4 flex items-center gap-4">
             <div className="glass rounded-2xl px-4 py-3">
               <div className="text-[10px] tracking-[0.32em] text-[#9ec5ff]">UNIVERS</div>
               <div className="text-lg leading-none">Poste de navigation</div>
               <div className="mono mt-1 text-[11px] text-white/70">{formatDateUTC(sim.jd)}</div>
             </div>
-            <div className="glass rounded-2xl px-4 py-3">
+            <div className="glass desk-only rounded-2xl px-4 py-3">
               <div className="text-[10px] tracking-[0.18em] text-white/45">ÉCHELLE</div>
               <div>{ECHELLE_LABEL[sim.echelle] ?? sim.band}</div>
               <div className="mono text-[11px] text-[#f0c27a]">
@@ -137,8 +140,8 @@ export function HUD({ nonce }: { nonce: number }) {
               <div>DPR ×{sim.dprBias.toFixed(2)}</div>
             </div>
           )}
-          <nav className="pointer-events-auto absolute left-1/2 top-4 z-30 flex max-w-[70vw] -translate-x-1/2 flex-wrap justify-center gap-1">
-            {breadcrumbs(sim.nearestId, sim.echelle).map((c, i, arr) => (
+          <nav aria-label="Fil d’Ariane" className="pointer-events-auto absolute left-1/2 top-4 z-30 flex max-w-[70vw] -translate-x-1/2 flex-wrap justify-center gap-1">
+            {shownCrumbs.map((c, i, arr) => (
               <button
                 key={c.id}
                 className="hud-btn"
@@ -152,7 +155,7 @@ export function HUD({ nonce }: { nonce: number }) {
               </button>
             ))}
           </nav>
-          <label className="pointer-events-auto absolute right-3 top-1/2 z-30 flex -translate-y-1/2 flex-col items-center gap-2">
+          <label className="desk-only pointer-events-auto absolute right-3 top-1/2 z-30 flex -translate-y-1/2 flex-col items-center gap-2">
             <span className="text-[10px] tracking-[0.14em] text-white/50">46 Gal</span>
             <input
               type="range"
@@ -165,7 +168,10 @@ export function HUD({ nonce }: { nonce: number }) {
             <span className="text-[10px] tracking-[0.14em] text-white/50">1 m</span>
           </label>
 
-          <aside className="pointer-events-auto absolute left-4 top-36 hidden w-52 md:block">
+          <button className={`hud-btn pointer-events-auto absolute ${sim.mobile ? 'left-4 top-24' : 'left-4 top-28'}`} aria-pressed={sim.layersOpen} onClick={() => (sim.layersOpen = !sim.layersOpen)}>
+            Calques
+          </button>
+          {sim.layersOpen && <aside className={`pointer-events-auto absolute z-40 ${sim.mobile ? 'bottom-28 left-3 right-3 max-h-[46vh] overflow-auto' : 'left-4 top-40 w-52'}`}>
             <div className="glass rounded-2xl p-3">
               <div className="mb-2 text-[10px] tracking-[0.18em] text-white/45">CALQUES</div>
               {(
@@ -196,9 +202,16 @@ export function HUD({ nonce }: { nonce: number }) {
                 </label>
               ))}
             </div>
-          </aside>
+          </aside>}
 
-          <aside className="pointer-events-auto absolute right-4 top-20 w-[320px]">
+          <button
+            className="hud-btn pointer-events-auto absolute right-4 top-16"
+            aria-pressed={sim.cardOpen}
+            onClick={() => (sim.cardOpen = !sim.cardOpen)}
+          >
+            Fiche
+          </button>
+          {sim.cardOpen && <aside className={`pointer-events-auto absolute w-[320px] max-w-[92vw] ${sim.mobile ? 'bottom-28 left-1/2 z-40 -translate-x-1/2' : 'right-4 top-28'}`}>
             <div className="glass max-h-[62vh] overflow-auto rounded-2xl p-4">
               <div className="text-[10px] tracking-[0.18em] text-[#f0c27a]">{body.category.toUpperCase()}</div>
               <h2 className="text-2xl leading-tight">{body.name}</h2>
@@ -229,19 +242,19 @@ export function HUD({ nonce }: { nonce: number }) {
                 <button className="hud-btn" onClick={() => beginWarp(body.id)}>
                   Cadrer
                 </button>
-                <button className="hud-btn" data-on={sim.follow} onClick={() => toggleFollow()}>
+                <button className="hud-btn" aria-pressed={sim.follow} onClick={() => toggleFollow()}>
                   Suivre l'astre
                 </button>
               </div>
             </div>
-          </aside>
+          </aside>}
 
-          <footer className="pointer-events-auto absolute inset-x-0 bottom-0 z-20 flex flex-col gap-2 p-4">
+          <footer className="pointer-events-auto absolute inset-x-0 bottom-0 z-20 flex flex-col gap-2 p-3 md:p-4">
             <div className="flex flex-wrap justify-center gap-2">
-              <button className="hud-btn" data-on={sim.mode === 'aerial'} onClick={() => setNav('aerial')}>
+              <button className="hud-btn" aria-pressed={sim.mode === 'aerial'} data-on={sim.mode === 'aerial'} onClick={() => setNav('aerial')}>
                 Vue aérienne
               </button>
-              <button className="hud-btn" data-on={sim.mode === 'freefly'} onClick={() => setNav('freefly')}>
+              <button className="hud-btn" aria-pressed={sim.mode === 'freefly'} data-on={sim.mode === 'freefly'} onClick={() => setNav('freefly')}>
                 Vol libre
               </button>
               <button className="hud-btn" onClick={() => viewSolarSystem()}>
@@ -274,12 +287,15 @@ export function HUD({ nonce }: { nonce: number }) {
               <button className="hud-btn" onClick={() => (sim.timeScale = Math.abs(sim.timeScale || 1))}>
                 ▶
               </button>
-              {SCALES.map((s) => (
-                <button key={s.label} className="hud-btn" data-on={sim.timeScale === s.value && !sim.paused} onClick={() => { sim.timeScale = s.value; sim.paused = s.value === 0 }}>
+              <span className="desk-only contents">
+              {SCALES.filter((s) => s.value !== 0).map((s) => (
+                <button key={s.label} className="hud-btn" aria-pressed={sim.timeScale === s.value && !sim.paused} onClick={() => { sim.timeScale = s.value; sim.paused = false }}>
                   {s.label}
                 </button>
               ))}
-              <input className="mono rounded-full bg-black/30 px-2 py-1 text-[11px]" type="datetime-local" value={date} onChange={(e) => setDate(e.target.value)} />
+              <label className="sr-only" htmlFor="sim-date">Date de la simulation</label>
+              <input id="sim-date" aria-label="Date de la simulation" className="mono rounded-full bg-black/30 px-2 py-1 text-[11px]" type="datetime-local" value={date} onChange={(e) => setDate(e.target.value)} />
+              </span>
               <button
                 className="hud-btn"
                 onClick={() => {
@@ -293,7 +309,7 @@ export function HUD({ nonce }: { nonce: number }) {
               <button className="hud-btn" data-on={sim.scaleMode === 'orrery'} onClick={toggleScale}>
                 {sim.scaleMode === 'real' ? 'Échelle réelle' : 'Orrery'}
               </button>
-              <button className="hud-btn" onClick={() => (sim.help = !sim.help)}>
+              <button className="hud-btn" aria-pressed={sim.help} onClick={() => (sim.help = !sim.help)}>
                 Aide
               </button>
               <button
@@ -306,11 +322,42 @@ export function HUD({ nonce }: { nonce: number }) {
               >
                 {sim.muted ? 'Son coupé' : 'Son'}
               </button>
-              <button className="hud-btn" onClick={() => (sim.photo = true)}>
+              <button
+                className="hud-btn"
+                onClick={() => {
+                  sim.photo = true
+                  sim.hud = false
+                }}
+              >
                 Photo
               </button>
+              <button className="hud-btn" aria-pressed={sim.toolsOpen} onClick={() => (sim.toolsOpen = !sim.toolsOpen)}>
+                Outils
+              </button>
+              <button className="hud-btn" aria-pressed={sim.credits} onClick={() => (sim.credits = !sim.credits)}>
+                Crédits
+              </button>
+              <button className="hud-btn" aria-pressed={sim.benchOn} onClick={() => startBench()}>
+                Banc
+              </button>
+              {sim.benchNote && (
+                <button
+                  className="hud-btn"
+                  onClick={() => {
+                    const blob = new Blob([JSON.stringify(window.__BENCH__ ?? [], null, 2)], { type: 'application/json' })
+                    const a = document.createElement('a')
+                    a.href = URL.createObjectURL(blob)
+                    a.download = 'univers-3d-bench.json'
+                    a.click()
+                  }}
+                >
+                  Export bench
+                </button>
+              )}
             </div>
-            <div className="flex flex-wrap gap-2">
+            {sim.toolsOpen && (
+            <div className="glass grid gap-3 rounded-2xl p-3 md:grid-cols-3">
+              <div className="flex flex-wrap gap-2 md:col-span-3">
               {TOURS.map((t) => (
                 <button key={t.id} className="hud-btn" onClick={() => startTour(t.id)}>
                   {t.title}
@@ -319,8 +366,7 @@ export function HUD({ nonce }: { nonce: number }) {
               <button className="hud-btn" onClick={() => (sim.comparator = true)}>
                 Comparateur
               </button>
-            </div>
-            <div className="glass grid gap-3 rounded-2xl p-3 md:grid-cols-3">
+              </div>
               <div>
                 <div className="text-[10px] tracking-[0.16em] text-white/45">QUALITÉ</div>
                 <div className="mt-1 flex gap-1">
@@ -331,7 +377,7 @@ export function HUD({ nonce }: { nonce: number }) {
                       data-on={sim.quality === q}
                       onClick={() => {
                         sim.quality = q
-                        sim.bloom = QUALITY_PRESET[q].bloom
+                        sim.bloomUser = QUALITY_PRESET[q].bloom
                         refreshBelts()
                       }}
                     >
@@ -346,12 +392,12 @@ export function HUD({ nonce }: { nonce: number }) {
               </label>
               <label className="text-xs">
                 Bloom
-                <input type="range" min={0} max={1.6} step={0.02} value={sim.bloom} onChange={(e) => (sim.bloom = Number(e.target.value))} />
+                <input type="range" min={0} max={1.6} step={0.02} value={sim.bloomUser} onChange={(e) => (sim.bloomUser = Number(e.target.value))} />
               </label>
               <div className="text-xs md:col-span-3">
                 <div className="text-[10px] tracking-[0.16em] text-white/45">RÈGLE COSMIQUE</div>
                 <div className="mt-1 flex flex-wrap items-center gap-2">
-                  <select className="mono bg-transparent" value={sim.rulerA} onChange={(e) => (sim.rulerA = e.target.value)}>
+                  <select aria-label="Origine de la règle cosmique" className="mono bg-transparent" value={sim.rulerA} onChange={(e) => (sim.rulerA = e.target.value)}>
                     {BODY_IDS.map((id) => (
                       <option key={id} value={id}>
                         {BODY_BY_ID[id].name}
@@ -359,7 +405,7 @@ export function HUD({ nonce }: { nonce: number }) {
                     ))}
                   </select>
                   <span>→</span>
-                  <select className="mono bg-transparent" value={sim.rulerB} onChange={(e) => (sim.rulerB = e.target.value)}>
+                  <select aria-label="Destination de la règle cosmique" className="mono bg-transparent" value={sim.rulerB} onChange={(e) => (sim.rulerB = e.target.value)}>
                     {BODY_IDS.map((id) => (
                       <option key={id} value={id}>
                         {BODY_BY_ID[id].name}
@@ -372,6 +418,7 @@ export function HUD({ nonce }: { nonce: number }) {
                 </div>
               </div>
             </div>
+            )}
           </footer>
 
           <div className="pointer-events-none absolute inset-0">
@@ -386,7 +433,7 @@ export function HUD({ nonce }: { nonce: number }) {
               </button>
             ))}
           </div>
-        </>
+        </main>
       )}
 
       {sim.photo && (
@@ -463,6 +510,20 @@ export function HUD({ nonce }: { nonce: number }) {
         </div>
       )}
 
+      {sim.credits && (
+        <div className="pointer-events-auto absolute inset-0 z-40 flex items-center justify-center bg-black/50" onClick={() => (sim.credits = false)}>
+          <div className="glass max-w-lg rounded-2xl p-5" onClick={(e) => e.stopPropagation()}>
+            <div className="text-lg">Crédits</div>
+            <p className="mt-2 text-[13px] leading-relaxed text-white/80">
+              Cartes Terre, Lune, Mars, Mercure : Solar System Scope, licence CC BY 4.0. Fond diffus cosmologique : Planck SMICA, ESA / Planck Collaboration, licence CC BY 4.0. Tuiles rapprochées : NASA GIBS Blue Marble, OpenPlanetaryMap Lune et Mars. Code sous licence MIT.
+            </p>
+            <button className="hud-btn mt-3" onClick={() => (sim.credits = false)}>
+              Fermer
+            </button>
+          </div>
+        </div>
+      )}
+
       {sim.help && (
         <div className="pointer-events-auto absolute inset-0 flex items-center justify-center bg-black/50" onClick={() => (sim.help = false)}>
           <div className="glass max-w-lg rounded-2xl p-5" onClick={(e) => e.stopPropagation()}>
@@ -473,7 +534,7 @@ export function HUD({ nonce }: { nonce: number }) {
               <li>Vol libre — ZQSD translation, souris verrouillée, A/E ou Q/E roulis</li>
               <li>Clic sur un astre — vol pour le cadrer, sans verrouillage</li>
               <li>Suivre l'astre est optionnel et s'arrête dès qu'on déplace la vue</li>
-              <li>R — vue Système Solaire · Ctrl+K recherche · H photo · O orrery · P pause</li>
+              <li>R — vue Système Solaire · Ctrl+K recherche · H immersion · O orrery · P pause</li>
               <li>Disposition clavier : {sim.layout.toUpperCase()} · proche de {BODY_BY_ID[sim.nearestId]?.name}</li>
             </ul>
             <button

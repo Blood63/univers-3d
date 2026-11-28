@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { BODY_BY_ID, BODY_IDS, TOURS } from '../astro/catalog'
-import { displayRadius, initEphemeris, readPos, realRadius, writeDisplay, writeWorld } from '../astro/ephemeris'
-import { AU, J2000, TAU, bandOf, clamp, smoother, v3, type V3 } from '../astro/math'
+import { displayRadius, initEphemeris, readPos, realRadius, trajectorySamples, writeDisplay, writeWorld } from '../astro/ephemeris'
+import { AU, J2000, TAU, bandOf, clamp, smoother, v3, ymdToJD, type V3 } from '../astro/math'
 import { echelleOf } from '../astro/scales'
 import { blip, ensureAudio, resumeAudio, setRadio } from './audio'
 import { cam64, detectMobile, sim, type CamMode } from './state'
@@ -30,6 +30,7 @@ const pC: V3 = v3()
 const qA: V3 = v3()
 const qB: V3 = v3()
 
+let issComposed = true
 let yaw = 0.9
 let pitch = -0.25
 let roll = 0
@@ -70,8 +71,6 @@ export let beltAsteroids: Float32Array | null = null
 export let beltKuiper: Float32Array | null = null
 export const probePaths: Record<string, Float32Array> = {}
 let worker: Worker | null = null
-let pathTimer = 0
-
 const syncs: Array<(dt: number) => void> = []
 export function onSync(fn: (dt: number) => void): () => void {
   syncs.push(fn)
@@ -301,6 +300,29 @@ function desiredCamera(id: string, out: V3): V3 {
     out.z = pB.z + d * 0.85
     return out
   }
+  if (id === 'iss') {
+    readPos('terre', pA, true)
+    const dx = pB.x - pA.x
+    const dy = pB.y - pA.y
+    const dz = pB.z - pA.z
+    const sl = Math.hypot(dx, dy, dz) || 1
+    const ux = dx / sl
+    const uy = dy / sl
+    const uz = dz / sl
+    readPos('soleil', pC, true)
+    let lx = pC.x - pB.x
+    let ly = pC.y - pB.y
+    let lz = pC.z - pB.z
+    const along = lx * ux + ly * uy + lz * uz
+    lx -= ux * along
+    ly -= uy * along
+    lz -= uz * along
+    const ll = Math.hypot(lx, ly, lz) || 1
+    out.x = pB.x + ux * 170 + (lx / ll) * 150
+    out.y = pB.y + uy * 170 + (ly / ll) * 150
+    out.z = pB.z + uz * 170 + (lz / ll) * 150
+    return out
+  }
   const r = displayRadius(id)
   const d = sim.scaleMode === 'orrery' ? Math.max(r * 4.4, 40) : Math.max(Math.min(BODY_BY_ID[id].approach, r * 18), r * 2.8)
   out.x = pB.x + d * 0.46
@@ -323,13 +345,23 @@ export function viewSolarSystem(): void {
   sim.warp = 0
   warp = null
   sim.target = 'soleil'
+  sim.selected = 'soleil'
   sim.altitude = airDist
   placeAerial()
   blip(440)
 }
 
+function surfaceFloor(id: string): number {
+  const b = BODY_BY_ID[id]
+  if (!b) return MIN_ALT
+  if (id === 'iss') return 220
+  if (b.kind === 'craft' || b.kind === 'constellation' || b.kind === 'comet') return 18
+  return Math.max(b.radius * 1.08, 40)
+}
+
 export function setAltitude(meters: number): void {
-  const d = Math.max(meters, MIN_ALT)
+  const id = sim.target && BODY_BY_ID[sim.target] ? sim.target : 'soleil'
+  const d = Math.max(meters, surfaceFloor(id))
   if (sim.mode !== 'aerial') {
     sim.mode = 'aerial'
     sim.follow = false
@@ -383,6 +415,7 @@ export function focusBody(id: string, instant = false): void {
   sim.selected = id
   sim.target = id
   if (instant) {
+    if (id === 'iss') issComposed = true
     desiredCamera(id, pA)
     putCam(pA.x, pA.y, pA.z)
     adoptAerial(id, false)
@@ -400,6 +433,7 @@ export function beginWarp(id: string): void {
   blip(620)
   sim.selected = id
   sim.target = id
+  if (id === 'iss') issComposed = true
   readPos(id, pB, true)
   const startQuat = camQuat.clone()
   desiredCamera(id, pA)
@@ -484,17 +518,48 @@ function stepAerial(dt: number): void {
   const panning = Math.abs(forward) + Math.abs(strafe) > 0 || Math.abs(dragPanX) + Math.abs(dragPanY) > 0.5
   if (panning) sim.follow = false
 
-  const reach = Math.max(MIN_ALT, Math.min(airDist, Math.max(sim.nearestGap, MIN_ALT) * 8))
-  const keyStep = reach * 0.7 * dt
-  const dragStep = reach * 0.0024
-  const mx = strafe * keyStep + dragPanX * dragStep
-  const mz = forward * keyStep + -dragPanY * dragStep
-  dragPanX = 0
-  dragPanY = 0
-  const cy = Math.cos(airYaw)
-  const sy = Math.sin(airYaw)
-  targetPivot.x += -sy * mx + -cy * mz
-  targetPivot.z += cy * mx + -sy * mz
+  const lockId = sim.target && BODY_BY_ID[sim.target] ? sim.target : 'soleil'
+  const lockBody = BODY_BY_ID[lockId]
+  const close =
+    !!lockBody &&
+    ((airDist < lockBody.radius * 5 &&
+      (lockBody.kind === 'planet' || lockBody.kind === 'moon' || lockBody.kind === 'star' || lockBody.kind === 'dwarf')) ||
+      (lockBody.kind === 'craft' && airDist < Math.max(lockBody.radius * 8, 500)))
+  if (close) {
+    if (panning) {
+      targetAirYaw -= strafe * 0.7 * dt + dragPanX * 0.0046
+      targetAirTilt = clamp(targetAirTilt + forward * 0.45 * dt + dragPanY * 0.0034, 0.12, Math.PI / 2 - 0.02)
+    }
+    readPos(lockId, pB, true)
+    targetPivot.x = pB.x
+    targetPivot.y = pB.y
+    targetPivot.z = pB.z
+    if (lockId === 'iss' && (Math.abs(dragOrbitX) + Math.abs(dragOrbitY) > 0.5 || wheelZoom !== 0)) issComposed = false
+    if (lockId === 'iss' && issComposed) {
+      desiredCamera('iss', pA)
+      const dx = pA.x - pB.x
+      const dy = pA.y - pB.y
+      const dz = pA.z - pB.z
+      const horiz = Math.hypot(dx, dz)
+      targetAirYaw = Math.atan2(dz, dx)
+      targetAirTilt = horiz < 1e-3 ? Math.PI / 2 - 0.04 : Math.atan2(dy, horiz)
+      targetDist = Math.max(Math.hypot(dx, dy, dz), surfaceFloor('iss'))
+    }
+    dragPanX = 0
+    dragPanY = 0
+  } else {
+    const reach = Math.max(MIN_ALT, Math.min(airDist, Math.max(sim.nearestGap, MIN_ALT) * 8))
+    const keyStep = reach * 0.7 * dt
+    const dragStep = reach * 0.0024
+    const mx = strafe * keyStep + dragPanX * dragStep
+    const mz = forward * keyStep + -dragPanY * dragStep
+    dragPanX = 0
+    dragPanY = 0
+    const cy = Math.cos(airYaw)
+    const sy = Math.sin(airYaw)
+    targetPivot.x += -sy * mx + -cy * mz
+    targetPivot.z += cy * mx + -sy * mz
+  }
 
   targetAirYaw -= dragOrbitX * 0.0048
   targetAirTilt = clamp(targetAirTilt - dragOrbitY * 0.0038, 0.045, Math.PI / 2 - 0.012)
@@ -504,7 +569,7 @@ function stepAerial(dt: number): void {
     targetDist *= Math.exp(wheelZoom * 0.0015)
     wheelZoom = 0
   }
-  targetDist = Math.max(targetDist, MIN_ALT)
+  targetDist = Math.max(targetDist, surfaceFloor(lockId))
 
   if (sim.follow && sim.selected && BODY_BY_ID[sim.selected]) {
     readPos(sim.selected, pB, true)
@@ -513,7 +578,7 @@ function stepAerial(dt: number): void {
     targetPivot.z = pB.z
   }
 
-  const kp = 1 - Math.exp(-dt * 9)
+  const kp = close ? 1 : 1 - Math.exp(-dt * 9)
   pivot.x += (targetPivot.x - pivot.x) * kp
   pivot.y += (targetPivot.y - pivot.y) * kp
   pivot.z += (targetPivot.z - pivot.z) * kp
@@ -534,8 +599,14 @@ function stepWarp(dt: number): void {
   putCam(warp.sx + (warp.tx - warp.sx) * u, warp.sy + (warp.ty - warp.sy) * u, warp.sz + (warp.tz - warp.sz) * u)
   // refresh end point so planets that moved are still met
   readPos(warp.id, pB, true)
+  if (warp.id === 'iss') {
+    desiredCamera('iss', pA)
+    warp.tx = pA.x
+    warp.ty = pA.y
+    warp.tz = pA.z
+  }
   const off = craftOffset(warp.id, offV)
-  if (off.lengthSq() > 0 && (BODY_BY_ID[warp.id].kind === 'craft' || BODY_BY_ID[warp.id].kind === 'constellation')) {
+  if (warp.id !== 'iss' && off.lengthSq() > 0 && (BODY_BY_ID[warp.id].kind === 'craft' || BODY_BY_ID[warp.id].kind === 'constellation')) {
     bodyQuaternion(warp.id, qTmp)
     xA.copy(off).applyQuaternion(qTmp)
     warp.tx = pB.x + xA.x
@@ -608,7 +679,18 @@ function updateNearest(): void {
   const gap = Math.max(0, best)
   sim.band = bandOf(gap)
   sim.echelle = echelleOf(gap)
+  const framed = BODY_BY_ID[sim.selected]
+  if (framed && (framed.kind === 'galaxy' || framed.kind === 'nebula' || framed.kind === 'blackhole')) {
+    readPos(framed.id, pC, false)
+    const real = Math.hypot(pC.x, pC.y, pC.z)
+    sim.echelle = echelleOf(real)
+    sim.band = bandOf(real)
+  }
   sim.altitude = sim.mode === 'aerial' ? airDist : gap
+  const nearView = sim.echelle <= 2
+  const systemView = sim.echelle === 3
+  sim.bloom = sim.bloomUser * (nearView ? 0.32 : systemView ? 0 : 1)
+  sim.exposure = nearView ? 0.78 : systemView ? 0.85 : 1
   readPos('jupiter', pA, true)
   readPos('saturne', pB, true)
   const dj = Math.hypot(pA.x - cam64[0], pA.y - cam64[1], pA.z - cam64[2])
@@ -689,8 +771,21 @@ function bootWorker(): void {
     ultra: [8000, 3600],
   }[q]
   worker.postMessage({ type: 'belts', asteroids: preset[0], kuiper: preset[1] })
-  worker.postMessage({ type: 'paths', jd: sim.jd })
-  worker.postMessage({ type: 'ephemeris', jd: sim.jd, token: 1 })
+}
+
+let pathsBuilt = false
+function ensureProbePaths(): void {
+  if (pathsBuilt || !sim.layers.trajectories || sim.echelle > 4) return
+  pathsBuilt = true
+  const jd1 = sim.jd
+  const jobs: [string, number, number, number][] = [
+    ['voyager1', ymdToJD(1977, 9, 5), jd1 + 365.25 * 30, 160],
+    ['voyager2', ymdToJD(1977, 8, 20), jd1 + 365.25 * 30, 180],
+    ['newhorizons', ymdToJD(2006, 1, 19), jd1 + 365.25 * 20, 140],
+    ['pioneer10', ymdToJD(1972, 3, 2), jd1 + 365.25 * 20, 120],
+    ['pioneer11', ymdToJD(1973, 4, 6), jd1 + 365.25 * 20, 120],
+  ]
+  for (const [id, jd0, jdEnd, steps] of jobs) probePaths[id] = trajectorySamples(id, jd0, jdEnd, steps)
 }
 
 export function refreshBelts(): void {
@@ -702,10 +797,12 @@ export function boot(view: string): void {
   if (sim.mobile) {
     sim.quality = 'low'
     sim.bloom = 0.28
+    sim.bloomUser = 0.28
     sim.layout = 'qwerty'
   } else {
     sim.quality = 'high'
     sim.bloom = 0.78
+    sim.bloomUser = 0.78
   }
   sim.layout = navigator.language.toLowerCase().startsWith('fr') && !sim.mobile ? 'azerty' : sim.layout
   initEphemeris()
@@ -756,12 +853,7 @@ export function boot(view: string): void {
   prevCam.z = cam64[2]
   sim.ready = true
   bootWorker()
-  if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('bench') === '1') {
-    sim.benchOn = true
-    benchStep = 0
-    benchRows.length = 0
-    beginBenchView(BENCH_VIEWS[0])
-  }
+  if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('bench') === '1') startBench()
   window.__UNIVERS__ = {
     ready: true,
     setView: (name: string) => {
@@ -791,8 +883,17 @@ export function boot(view: string): void {
 
 const BENCH_VIEWS = ['system', 'iss', 'earth', 'moon', 'mars', 'jupiter', 'saturn', 'ganymede', 'm31'] as const
 const benchSamples: number[] = []
-const benchRows: { view: string; fps: number; low: number; ms: number }[] = []
+const benchRows: { view: string; fps: number; low: number; ms: number; p99ms: number }[] = []
 let benchStep = -1
+
+export function startBench(): void {
+  sim.benchOn = true
+  sim.benchNote = ''
+  benchStep = 0
+  benchRows.length = 0
+  benchSamples.length = 0
+  beginBenchView(BENCH_VIEWS[0])
+}
 
 function beginBenchView(name: string): void {
   if (name === 'system') viewSolarSystem()
@@ -814,20 +915,15 @@ function finishBenchStep(name: string): void {
   const avg = sum / n
   const sorted = benchSamples.slice().sort((a, b) => a - b)
   const cut = Math.max(0, Math.floor(sorted.length * 0.99))
-  let worst = 0
-  let wn = 0
-  for (let i = cut; i < sorted.length; i++) {
-    worst += sorted[i]
-    wn += 1
-  }
-  const worstAvg = wn ? worst / wn : avg
+  const p99 = sorted[Math.min(sorted.length - 1, cut)] ?? avg
   benchRows.push({
     view: name,
     fps: avg > 0 ? 1 / avg : 0,
-    low: worstAvg > 0 ? 1 / worstAvg : 0,
+    low: p99 > 0 ? 1 / p99 : 0,
     ms: avg * 1000,
+    p99ms: p99 * 1000,
   })
-  sim.benchNote = benchRows.map((r) => `${r.view} ${r.fps.toFixed(0)} fps / 1% ${r.low.toFixed(0)} / ${r.ms.toFixed(1)} ms`).join('\n')
+  sim.benchNote = benchRows.map((r) => `${r.view} ${r.fps.toFixed(1)} fps · 1% ${r.low.toFixed(1)} · ${r.ms.toFixed(2)} ms · p99 ${r.p99ms.toFixed(2)} ms`).join('\n')
   window.__BENCH__ = benchRows.slice()
 }
 
@@ -859,16 +955,11 @@ export function frame(dt: number, camera: THREE.PerspectiveCamera): void {
     camera.updateProjectionMatrix()
   }
   sim.fps = sim.fps * 0.9 + (1 / h) * 0.1
-  pathTimer += h
-  if (pathTimer > 8 && worker) {
-    pathTimer = 0
-    worker.postMessage({ type: 'paths', jd: sim.jd })
-    worker.postMessage({ type: 'ephemeris', jd: sim.jd, token: Math.floor(sim.jd) })
-  }
+  ensureProbePaths()
   for (const fn of syncs) fn(h)
   if (sim.benchOn && !sim.warpActive && benchStep >= 0 && benchStep < BENCH_VIEWS.length) {
-    benchSamples.push(Math.min(dt, 0.1))
-    if (benchSamples.length >= 48) {
+    benchSamples.push(Math.max(dt, 0.0001))
+    if (benchSamples.length >= 300) {
       finishBenchStep(BENCH_VIEWS[benchStep])
       benchStep += 1
       if (benchStep < BENCH_VIEWS.length) beginBenchView(BENCH_VIEWS[benchStep])
@@ -907,8 +998,8 @@ export function bindInput(canvas: HTMLCanvasElement): () => void {
     if (e.code === 'Space') e.preventDefault()
     sim.keys.add(e.code)
     if (e.code === 'KeyH') {
-      sim.photo = !sim.photo
-      sim.hud = !sim.photo
+      sim.hud = !sim.hud
+      if (sim.hud) sim.photo = false
     } else if (e.code === 'KeyM') {
       sim.muted = !sim.muted
       ensureAudio()

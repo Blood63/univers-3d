@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { proceduralFallback, queueHd, registerTexture } from '../engine/texcache'
+import { proceduralFallback, registerTexture, upgradeTexture } from '../engine/texcache'
 
 const FILES: Record<string, string> = {
   sun: 'textures/sun.jpg',
@@ -77,9 +77,6 @@ export function loadTextures(onProgress: (ratio: number) => void): Promise<Recor
             t.generateMipmaps = true
             t.minFilter = THREE.LinearMipmapLinearFilter
             registerTexture(key, url, t, bytes)
-            if (url !== full && key !== 'sun' && key !== 'jupiter' && key !== 'saturn' && key !== 'uranus' && key !== 'neptune' && key !== 'ceres' && key !== 'pluto' && key !== 'venus' && key !== 'saturnRing' && key !== 'earthSpec') {
-              queueHd(key, full)
-            }
             done += 1
             onProgress(done / entries.length)
             resolve([key, t])
@@ -89,7 +86,9 @@ export function loadTextures(onProgress: (ratio: number) => void): Promise<Recor
             finish(fb, full, 64 * 64 * 4)
           }
           if (!hasPreview) {
-            loader.load(full, (t) => finish(t, full, 2048 * 1024 * 3), undefined, giveUp)
+            loader.load(preview, (t) => finish(t, preview, 512 * 256 * 3), undefined, () => {
+              loader.load(full, (t) => finish(t, full, 2048 * 1024 * 3), undefined, giveUp)
+            })
             return
           }
           loader.load(
@@ -103,4 +102,38 @@ export function loadTextures(onProgress: (ratio: number) => void): Promise<Recor
         }),
     ),
   ).then((pairs) => Object.fromEntries(pairs))
+}
+
+const BODY_MAPS: Record<string, string[]> = {
+  soleil: ['sun'],
+  mercure: ['mercury'],
+  venus: ['venus'],
+  terre: ['earth', 'earthNight', 'earthCloud', 'earthNormal', 'earthSpec'],
+  mars: ['mars'],
+  jupiter: ['jupiter'],
+  saturne: ['saturn', 'saturnRing'],
+  uranus: ['uranus'],
+  neptune: ['neptune'],
+  lune: ['moon'],
+  ceres: ['ceres'],
+  pluton: ['pluto'],
+  io: ['io'],
+  europe: ['europa'],
+  ganymede: ['ganymede'],
+  callisto: ['callisto'],
+  encelade: ['enceladus'],
+  titan: ['titan'],
+  haumea: ['haumea'],
+  cmb: ['cmb'],
+}
+
+/** Full-resolution maps for one body. Previews stay on screen until the decode finishes. */
+export function requestMaps(bodyId: string): void {
+  const keys = BODY_MAPS[bodyId]
+  if (!keys) return
+  const base = import.meta.env.BASE_URL
+  for (const key of keys) {
+    const file = FILES[key]
+    if (file) upgradeTexture(key, base + file)
+  }
 }
