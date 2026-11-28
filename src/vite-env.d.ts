@@ -19,6 +19,18 @@ declare global {
         pivot: number[]
       }
     }
-    __BENCH__?: { view: string; fps: number; low: number; ms: number; p99ms: number }[]
+    __BENCH__?: {
+      view: string
+      fps: number
+      low: number
+      ms: number
+      p99ms: number
+      maxMs: number
+      over16: number
+      over33: number
+      warmupFrames: number
+      warmupMs: number
+      warmupMaxMs: number
+    }[]
   }
 }

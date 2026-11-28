@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js'
 
 interface Slot {
   key: string
@@ -107,35 +108,154 @@ export function queueHd(key: string, url: string): void {
 
 /** Decode the full-resolution maps after the first frame and swap them in. */
 const upgrading = new Set<string>()
+const bitmapLoader = new THREE.ImageBitmapLoader()
+bitmapLoader.setOptions({ imageOrientation: 'flipY', premultiplyAlpha: 'none', colorSpaceConversion: 'none' })
 
-/** Swap one map for its full-resolution file. No-op if that URL is already bound. */
+type Upload =
+  | { kind: 'bitmap'; key: string; url: string; bitmap: ImageBitmap; colorSpace: THREE.ColorSpace }
+  | { kind: 'replace'; key: string; url: string; tex: THREE.Texture; bytes: number }
+  | { kind: 'custom'; run: () => void }
+
+const uploadQueue: Upload[] = []
+let ktx2: KTX2Loader | null = null
+
+export function bindRenderer(gl: THREE.WebGLRenderer): void {
+  if (ktx2) return
+  const loader = new KTX2Loader()
+  loader.setTranscoderPath(`${import.meta.env.BASE_URL}basis/`)
+  loader.setWorkerLimit(2)
+  loader.detectSupport(gl)
+  ktx2 = loader
+}
+
+function ktxUrl(fileUrl: string): string | null {
+  const match = fileUrl.match(/^(.*\/)textures\/([^/]+)\.(?:jpg|png)$/)
+  if (!match) return null
+  return `${match[1]}textures/ktx2/${match[2]}.ktx2`
+}
+
+function compressedBytes(tex: THREE.Texture): number {
+  const image = tex.image as { data?: ArrayBufferView } | Array<{ data?: ArrayBufferView }> | null
+  if (Array.isArray(image)) {
+    let n = 0
+    for (const mip of image) n += mip.data?.byteLength ?? 0
+    return n
+  }
+  return image?.data?.byteLength ?? 0
+}
+
+/** createImageBitmap has already run off the main thread. The GPU upload waits for pumpGpuUploads. */
+export function queueBitmap(key: string, url: string, bitmap: ImageBitmap, colorSpace: THREE.ColorSpace): void {
+  uploadQueue.push({ kind: 'bitmap', key, url, bitmap, colorSpace })
+}
+
+export function decodeBitmap(url: string): Promise<ImageBitmap> {
+  return new Promise((resolve, reject) => {
+    bitmapLoader.load(url, (bitmap) => resolve(bitmap), undefined, () => reject(new Error(url)))
+  })
+}
+
+function applyUpload(job: Upload): void {
+  if (job.kind === 'custom') {
+    job.run()
+    return
+  }
+  const slot = slots.find((s) => s.key === job.key)
+  if (job.kind === 'bitmap') {
+    if (!slot) {
+      job.bitmap.close()
+      return
+    }
+    slot.tex.image = job.bitmap
+    slot.tex.flipY = false
+    slot.tex.colorSpace = job.colorSpace
+    slot.tex.wrapS = THREE.ClampToEdgeWrapping
+    slot.tex.wrapT = THREE.ClampToEdgeWrapping
+    slot.tex.generateMipmaps = true
+    slot.tex.minFilter = THREE.LinearMipmapLinearFilter
+    slot.tex.magFilter = THREE.LinearFilter
+    slot.tex.anisotropy = Math.max(slot.tex.anisotropy, 8)
+    slot.tex.needsUpdate = true
+    slot.url = job.url
+    slot.bytes = job.bitmap.width * job.bitmap.height * 4
+    slot.resident = true
+    slot.last = ++clock
+    emit(job.key, slot.tex)
+    upgrading.delete(job.key)
+    return
+  }
+  job.tex.anisotropy = Math.max(job.tex.anisotropy, 8)
+  job.tex.wrapS = THREE.ClampToEdgeWrapping
+  job.tex.wrapT = THREE.ClampToEdgeWrapping
+  job.tex.needsUpdate = true
+  const old = slot?.tex
+  if (slot) {
+    slot.tex = job.tex
+    slot.url = job.url
+    slot.bytes = job.bytes
+    slot.resident = true
+    slot.last = ++clock
+  } else {
+    registerTexture(job.key, job.url, job.tex, job.bytes)
+  }
+  emit(job.key, job.tex)
+  if (old && old !== job.tex) old.dispose()
+  upgrading.delete(job.key)
+}
+
+/** Spread GPU uploads. A full HD map uses the whole budget; several previews share one frame. */
+export function pumpGpuUploads(): void {
+  let cost = 0
+  while (uploadQueue.length && cost < 1_400_000) {
+    const next = uploadQueue[0]
+    const pixels = next.kind === 'bitmap' ? next.bitmap.width * next.bitmap.height : next.kind === 'replace' ? 4_000_000 : 512 * 512
+    if (cost > 0 && cost + pixels > 1_400_000) break
+    cost += pixels
+    applyUpload(uploadQueue.shift()!)
+  }
+}
+
+export function deferBitmap(url: string, apply: (bitmap: ImageBitmap) => void, onError: () => void): void {
+  bitmapLoader.load(
+    url,
+    (bitmap) => uploadQueue.push({ kind: 'custom', run: () => apply(bitmap) }),
+    undefined,
+    onError,
+  )
+}
+
+function applyUpgrade(key: string, jpegUrl: string): void {
+  const slot = slots.find((s) => s.key === key)
+  const colorSpace = (slot?.tex.colorSpace ?? THREE.SRGBColorSpace) as THREE.ColorSpace
+  const ktx = ktxUrl(jpegUrl)
+  const useJpeg = () => {
+    bitmapLoader.load(
+      jpegUrl,
+      (bitmap) => queueBitmap(key, jpegUrl, bitmap, colorSpace),
+      undefined,
+      () => upgrading.delete(key),
+    )
+  }
+  if (!ktx || !ktx2) {
+    useJpeg()
+    return
+  }
+  ktx2.load(
+    ktx,
+    (tex) => {
+      uploadQueue.push({ kind: 'replace', key, url: ktx, tex, bytes: compressedBytes(tex) || tex.image?.width * tex.image?.height || 0 })
+    },
+    undefined,
+    () => useJpeg(),
+  )
+}
+
+/** Swap one map for its full-resolution file. KTX2/Basis first, JPEG if the transcoder fails. */
 export function upgradeTexture(key: string, url: string): void {
   const prev = slots.find((s) => s.key === key)
-  if (upgrading.has(key) || (prev && prev.url === url)) return
+  if (upgrading.has(key) || (prev && (prev.url === url || prev.url.endsWith('.ktx2')))) return
   upgrading.add(key)
-  const loader = new THREE.TextureLoader()
-  loader.load(url, (nt) => {
-    const slot = slots.find((s) => s.key === key)
-    nt.colorSpace = slot?.tex.colorSpace ?? THREE.SRGBColorSpace
-    nt.anisotropy = Math.max(slot?.tex.anisotropy ?? 8, 8)
-    nt.wrapS = THREE.ClampToEdgeWrapping
-    nt.wrapT = THREE.ClampToEdgeWrapping
-    nt.generateMipmaps = true
-    nt.minFilter = THREE.LinearMipmapLinearFilter
-    const old = slot?.tex
-    if (slot) {
-      slot.tex = nt
-      slot.url = url
-      slot.bytes = 3840 * 1920 * 3
-      slot.resident = true
-      slot.last = ++clock
-    } else {
-      registerTexture(key, url, nt, 3840 * 1920 * 3)
-    }
-    emit(key, nt)
-    if (old && old !== nt) old.dispose()
-    upgrading.delete(key)
-  })
+  applyUpgrade(key, url)
 }
 
 /** Kept so callers stay valid. HD maps are requested per visible body. */
@@ -160,35 +280,26 @@ export function streamTextures(distanceLy: number): void {
       loading = false
       return
     }
-    const loader = new THREE.TextureLoader()
     let left = pending.length
     for (const s of pending) {
-      loader.load(
+      const finish = () => {
+        left -= 1
+        if (left === 0) {
+          shed = false
+          loading = false
+        }
+      }
+      bitmapLoader.load(
         s.url,
-        (nt) => {
-          nt.colorSpace = s.tex.colorSpace
-          nt.anisotropy = s.tex.anisotropy || 8
-          nt.wrapS = s.tex.wrapS
-          nt.wrapT = s.tex.wrapT
-          s.tex = nt
-          s.resident = true
-          s.last = ++clock
-          emit(s.key, nt)
-          left -= 1
-          if (left === 0) {
-            shed = false
-            loading = false
-          }
+        (bitmap) => {
+          queueBitmap(s.key, s.url, bitmap, s.tex.colorSpace as THREE.ColorSpace)
+          finish()
         },
         undefined,
         () => {
           s.resident = true
           emit(s.key, paint(s.key))
-          left -= 1
-          if (left === 0) {
-            shed = false
-            loading = false
-          }
+          finish()
         },
       )
     }

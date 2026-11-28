@@ -573,3 +573,25 @@ Lighthouse 12, Chrome headless de cette machine (SwiftShader, pas un GPU de bure
 | Mesuré, mobile | 55 | 100 | 96 | 90 | 0,90 Mo |
 
 Le détail réseau du run PC : JS gzip 66 + 175 + 87 Ko (index, three, vendor), post 77 Ko chargé juste après, aperçus JPEG 0,46 Mo, deux woff2 latin (Outfit 14 Ko, IBM Plex Mono 15 Ko). Aucune carte HD au premier écran. TBT mesuré ici : 23,5 s PC et 10,6 s mobile. Le TBT PC est dominé par le thread principal sous SwiftShader (45 s) ; je ne le présente pas comme une régression réelle sur un GPU.
+
+## Pics GPU du 28 novembre 2026, 11:23 (RTX 5070, 300 Hz)
+
+Référence mesurée par l’utilisateur, Chrome, 1920×1080, vsync coupée. Colonnes : fps moyen / 1 % low / ms moyen / p99 ms.
+
+| Vue | fps | 1 % low | ms | p99 |
+| --- | --- | --- | --- | --- |
+| system | 178,3 | 39,8 | 5,61 | 25,1 |
+| iss | 186,5 | 22,3 | 5,36 | 44,9 |
+| earth | 273,5 | 175,4 | 3,66 | 5,7 |
+| moon | 274,4 | 161,3 | 3,64 | 6,2 |
+| mars | 279,4 | 208,3 | 3,58 | 4,8 |
+| jupiter | 287,7 | 101,0 | 3,48 | 9,9 |
+| saturn | 286,5 | 138,9 | 3,49 | 7,2 |
+| ganymede | 295,1 | 188,7 | 3,39 | 5,3 |
+| m31 | 291,3 | 93,5 | 3,43 | 10,7 |
+
+Diagnostic. Le 1 % low est l’inverse du p99, donc system et iss ont quelques images longues (25 ms et 45 ms), pas une moyenne basse. Le banc démarrait le chronomètre à la première image de la vue. `system` est la première : compilation des shaders du composer (le `compileAsync` précédent visait une scène encore vide), construction des cinq trajectoires de sondes sur le thread principal, et upload groupé des aperçus. `iss` arrive environ deux secondes plus tard, au moment où le réglage automatique du DPR redimensionne les framebuffers, et où les cinq cartes HD de la Terre sont décodées en JPEG puis envoyées au GPU dans la même fenêtre de 300 images. Jupiter et M31 dépassent 10 ms de p99 pour la même raison, avec une seule carte ou un premier usage de shader. Les vues planète déjà chaudes (Terre, Lune, Mars, Ganymède) restent sous 7 ms : ce ne sont pas des pics permanents.
+
+Correctifs. Échauffement de 60 images, rapporté à part (`warmupFrames`, `warmupMs`, `warmupMaxMs`) et exclu du p99. Le JSON ajoute `maxMs`, `over16`, `over33`. Les shaders de la scène sont compilés avant `boot`. Les images passent par `createImageBitmap`. Les uploads GPU sont étalés (une carte HD par image, plusieurs aperçus). Une trajectoire de sonde par image. Le DPR ne bouge pas pendant le banc. Les cartes HD sont en KTX2 Basis ETC1S, avec repli JPEG si le transcodeur échoue.
+
+Poids des cartes HD : JPEG+PNG 25,42 Mo → KTX2 12,87 Mo. VRAM si toutes sont résidentes, mipmaps compris : RGBA8 571 Mo → environ 143 Mo en BC7 (RTX 5070) ou 71 Mo en BC1. Le démarrage reste sur les aperçus JPEG. Le 404 `textures/preview/saturn_ring.png` est comblé. Sur Pixel 7 le fil d’Ariane est sous le titre, plus sous Ctrl+K. `H` est documenté comme immersion. La vue ISS recule à ~780 m le long de la radiale : le disque terrestre remplit le fond, le limbe reste bleu.

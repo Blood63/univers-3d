@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { proceduralFallback, registerTexture, upgradeTexture } from '../engine/texcache'
+import { decodeBitmap, proceduralFallback, queueBitmap, registerTexture, upgradeTexture } from '../engine/texcache'
 
 const FILES: Record<string, string> = {
   sun: 'textures/sun.jpg',
@@ -40,7 +40,6 @@ function fallback(key: string): THREE.Texture {
 }
 
 export function loadTextures(onProgress: (ratio: number) => void): Promise<Record<string, THREE.Texture>> {
-  const loader = new THREE.TextureLoader()
   const base = import.meta.env.BASE_URL
   const entries = Object.entries(FILES)
   let done = 0
@@ -49,54 +48,37 @@ export function loadTextures(onProgress: (ratio: number) => void): Promise<Recor
       ([key, file]) =>
         new Promise<[string, THREE.Texture]>((resolve) => {
           const full = base + file
-          const previewName = previewUrl(file)
-          const hasPreview = [
-            'earth_day.jpg',
-            'earth_night.jpg',
-            'earth_clouds.jpg',
-            'earth_normal.jpg',
-            'moon.jpg',
-            'mars.jpg',
-            'mercury.jpg',
-            'io.jpg',
-            'europa.jpg',
-            'ganymede.jpg',
-            'callisto.jpg',
-            'enceladus.jpg',
-            'titan.jpg',
-            'cmb.jpg',
-            'haumea.jpg',
-          ].some((n) => file.endsWith(n))
-          const preview = base + previewName
-          const finish = (t: THREE.Texture, url: string, bytes: number) => {
-            const linear = key === 'earthSpec' || key === 'saturnRing' || key === 'earthNormal'
-            t.colorSpace = linear ? THREE.LinearSRGBColorSpace : THREE.SRGBColorSpace
-            t.anisotropy = 8
-            t.wrapS = THREE.ClampToEdgeWrapping
-            t.wrapT = THREE.ClampToEdgeWrapping
-            t.generateMipmaps = true
-            t.minFilter = THREE.LinearMipmapLinearFilter
-            registerTexture(key, url, t, bytes)
+          const preview = base + previewUrl(file)
+          const linear = key === 'earthSpec' || key === 'saturnRing' || key === 'earthNormal'
+          const colorSpace = linear ? THREE.LinearSRGBColorSpace : THREE.SRGBColorSpace
+          const placeholder = new THREE.Texture()
+          placeholder.colorSpace = colorSpace
+          placeholder.flipY = false
+          placeholder.wrapS = THREE.ClampToEdgeWrapping
+          placeholder.wrapT = THREE.ClampToEdgeWrapping
+          placeholder.anisotropy = 8
+          registerTexture(key, preview, placeholder, 64)
+          const accept = (bitmap: ImageBitmap, url: string) => {
+            queueBitmap(key, url, bitmap, colorSpace)
             done += 1
             onProgress(done / entries.length)
-            resolve([key, t])
+            resolve([key, placeholder])
           }
           const giveUp = () => {
             const fb = fallback(key)
-            finish(fb, full, 64 * 64 * 4)
+            placeholder.image = fb.image
+            placeholder.needsUpdate = true
+            done += 1
+            onProgress(done / entries.length)
+            resolve([key, placeholder])
           }
-          if (!hasPreview) {
-            loader.load(preview, (t) => finish(t, preview, 512 * 256 * 3), undefined, () => {
-              loader.load(full, (t) => finish(t, full, 2048 * 1024 * 3), undefined, giveUp)
-            })
-            return
-          }
-          loader.load(
-            preview,
-            (t) => finish(t, preview, 512 * 256 * 3),
-            undefined,
+          decodeBitmap(preview).then(
+            (bitmap) => accept(bitmap, preview),
             () => {
-              loader.load(full, (t) => finish(t, full, 2048 * 1024 * 3), undefined, giveUp)
+              decodeBitmap(full).then(
+                (bitmap) => accept(bitmap, full),
+                () => giveUp(),
+              )
             },
           )
         }),

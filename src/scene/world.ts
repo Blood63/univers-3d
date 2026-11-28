@@ -28,7 +28,7 @@ import {
 import { beltAsteroids, beltKuiper, bodyQuaternion, probePaths, screenStreak } from '../engine/runtime'
 import { cam64, labelFrame, sim } from '../engine/state'
 import { createCosmos } from './cosmos'
-import { followTexture, streamTextures } from '../engine/texcache'
+import { deferBitmap, followTexture, pumpGpuUploads, streamTextures } from '../engine/texcache'
 import { requestMaps } from './textures'
 import { requestCover, tileCacheCount, type QuadBody } from './quadtree'
 
@@ -138,7 +138,6 @@ const whiteTex = (): THREE.DataTexture => {
 
 export function createUniverse(tex: Record<string, THREE.Texture>): { object: THREE.Group; handle: UniverseHandle } {
   const root = new THREE.Group()
-  const tileLoader = new THREE.TextureLoader()
   const tileCache = new Map<string, THREE.Texture>()
   const tileWait = new Set<string>()
   const blank = whiteTex()
@@ -793,7 +792,8 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
   const pathLines: Record<string, THREE.Line> = {}
   for (const id of ['voyager1', 'voyager2', 'newhorizons', 'pioneer10', 'pioneer11']) {
     const geo = new THREE.BufferGeometry()
-    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(3), 3))
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(181 * 3), 3))
+    geo.setDrawRange(0, 0)
     const line = new THREE.Line(geo, pathMat.clone())
     line.frustumCulled = false
     root.add(line)
@@ -936,6 +936,7 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
   }
 
   const update = (dt: number, camera: THREE.PerspectiveCamera, w: number, h: number) => {
+    pumpGpuUploads()
     const time = ((sim.jd - J2000) % 10) * 20
     starMat.uniforms.uDensity.value = sim.starDensity
     starMat.uniforms.uWarp.value = sim.warp
@@ -1034,17 +1035,21 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
               let tile = tileCache.get(key)
               if (!tile && !tileWait.has(key)) {
                 tileWait.add(key)
-                tileLoader.load(
+                deferBitmap(
                   `${import.meta.env.BASE_URL}textures/tiles/${quadName}/${col}_${row}.jpg`,
-                  (t) => {
+                  (bitmap) => {
+                    const t = new THREE.Texture(bitmap)
+                    t.flipY = false
                     t.colorSpace = THREE.SRGBColorSpace
                     t.anisotropy = 8
                     t.wrapS = THREE.ClampToEdgeWrapping
                     t.wrapT = THREE.ClampToEdgeWrapping
+                    t.generateMipmaps = true
+                    t.minFilter = THREE.LinearMipmapLinearFilter
+                    t.needsUpdate = true
                     tileCache.set(key, t)
                     tileWait.delete(key)
                   },
-                  undefined,
                   () => tileWait.delete(key),
                 )
               }
@@ -1287,11 +1292,12 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
       line.visible = sim.layers.trajectories && !!data && (sim.echelle >= 3 || id === sim.selected)
       if (!data) continue
       let attr = line.geometry.attributes.position as THREE.BufferAttribute | undefined
-      if (!attr || attr.array.length !== data.length) {
+      if (!attr || attr.array.length < data.length) {
         line.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(data.length), 3))
         attr = line.geometry.attributes.position as THREE.BufferAttribute
       }
       const arr = attr.array as Float32Array
+      line.geometry.setDrawRange(0, data.length / 3)
       for (let i = 0; i < data.length; i += 3) {
         let x = data[i]
         let y = data[i + 1]
