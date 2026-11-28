@@ -126,7 +126,7 @@ export function bindRenderer(gl: THREE.WebGLRenderer): void {
   if (ktx2) return
   const loader = new KTX2Loader()
   loader.setTranscoderPath(`${import.meta.env.BASE_URL}basis/`)
-  loader.setWorkerLimit(2)
+  loader.setWorkerLimit(1)
   loader.detectSupport(gl)
   ktx2 = loader
 }
@@ -224,7 +224,7 @@ function applyUpload(job: Upload): void {
       slot.last = ++clock
     }
   }
-  note(`mip:${job.key}:${mip.width}x${mip.height}`)
+  note(`mip:${job.key}:${mip.width}x${mip.height}:${Math.round(mip.data.byteLength / 1024)}kb`)
   if (job.done) upgrading.delete(job.key)
 }
 
@@ -239,8 +239,11 @@ export function markFrameStart(): void {
   frameStamp = performance.now()
 }
 
-/** Drop mip levels above 2048 so one compressed upload stays inside a 16 ms frame. */
-function capCompressed(tex: THREE.Texture, maxEdge = 2048): void {
+/**
+ * Drop mip levels above 1024. A 1920-wide earth level is about 1.8 Mo of BC7 and
+ * was the intermittent 24 ms upload inside the ISS warm-up. 960×480 stays under it.
+ */
+function capCompressed(tex: THREE.Texture, maxEdge = 1024): void {
   const mips = tex.mipmaps
   if (!mips || mips.length < 2) return
   const edge = (mip: (typeof mips)[number]) => ('width' in mip ? Math.max(mip.width, mip.height) : 0)
@@ -260,7 +263,7 @@ function capCompressed(tex: THREE.Texture, maxEdge = 2048): void {
 /** One texture per frame, and never once the frame has already spent its budget. */
 export function pumpGpuUploads(): void {
   if (uploadQueue.length === 0) return
-  if (performance.now() - frameStamp > 8) return
+  if (performance.now() - frameStamp > 5) return
   const job = uploadQueue.shift()
   if (!job) return
   applyUpload(job)
@@ -299,30 +302,54 @@ export function deferBitmap(url: string, apply: (bitmap: ImageBitmap) => void, o
   )
 }
 
+type KtxJob = { key: string; ktx: string; jpegUrl: string; colorSpace: THREE.ColorSpace }
+const ktxWait: KtxJob[] = []
+let ktxBusy = false
+
+function pumpKtx(): void {
+  if (ktxBusy || !ktx2 || ktxWait.length === 0) return
+  const job = ktxWait.shift()
+  if (!job) return
+  ktxBusy = true
+  const fail = () => {
+    ktxBusy = false
+    bitmapLoader.load(
+      job.jpegUrl,
+      (bitmap) => queueBitmap(job.key, job.jpegUrl, bitmap, job.colorSpace),
+      undefined,
+      () => upgrading.delete(job.key),
+    )
+    requestAnimationFrame(() => pumpKtx())
+  }
+  ktx2.load(
+    job.ktx,
+    (tex) => {
+      const mark = performance.now()
+      queueCompressed(job.key, job.ktx, tex as THREE.CompressedTexture, compressedBytes(tex) || tex.image?.width * tex.image?.height || 0, job.colorSpace)
+      note(`ktx2-main:${job.key}:${(performance.now() - mark).toFixed(1)}ms`)
+      ktxBusy = false
+      requestAnimationFrame(() => pumpKtx())
+    },
+    undefined,
+    fail,
+  )
+}
+
 function applyUpgrade(key: string, jpegUrl: string): void {
   const slot = slots.find((s) => s.key === key)
   const colorSpace = (slot?.tex.colorSpace ?? THREE.SRGBColorSpace) as THREE.ColorSpace
   const ktx = ktxUrl(jpegUrl)
-  const useJpeg = () => {
+  if (!ktx || !ktx2) {
     bitmapLoader.load(
       jpegUrl,
       (bitmap) => queueBitmap(key, jpegUrl, bitmap, colorSpace),
       undefined,
       () => upgrading.delete(key),
     )
-  }
-  if (!ktx || !ktx2) {
-    useJpeg()
     return
   }
-  ktx2.load(
-    ktx,
-    (tex) => {
-      queueCompressed(key, ktx, tex as THREE.CompressedTexture, compressedBytes(tex) || tex.image?.width * tex.image?.height || 0, colorSpace)
-    },
-    undefined,
-    () => useJpeg(),
-  )
+  ktxWait.push({ key, ktx, jpegUrl, colorSpace })
+  pumpKtx()
 }
 
 /** Swap one map for its full-resolution file. KTX2/Basis first, JPEG if the transcoder fails. */

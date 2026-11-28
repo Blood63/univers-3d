@@ -640,3 +640,17 @@ Après les PR #10 et #11. Le warm-up de system est descendu (68 → 12,6 ms), ma
 Le 65 ms est l’activation du post-traitement : `requestIdleCallback` (timeout 180 ms) lance `compileAsync` puis `setLive(true)` après les 60 images, et le premier `composer.render` alloue les render targets en plein écran. La moyenne 269 → 243 s’explique par cette image dans les 300 : elle ajoute une soixantaine de millisecondes au total, le reste vient de quelques images entre 8 et 16 ms autour de cette activation. Ce n’est pas un coût permanent du rendu.
 
 Correctif : les passes sont compilées et les cibles créées avant `boot`, donc avant le chronomètre, en interrogeant `COMPLETION_STATUS_KHR` via `compileAsync`. Le banc ne démarre qu’après deux images de ce premier rendu. Les mips KTX2 partent du plus petit au plus grand, un par image. Une seule tuile est en vol. Les images au-dessus de 16,7 ms journalisent les marques récentes dans `window.__HITCHES__`.
+
+## Re-bench RTX 5070, 28 novembre 2026, 13:26
+
+Après la PR #12. Fenêtre mesurée propre sur les neuf vues : `maxMs` ≤ 8,4, `over16` = 0, p99 ≤ 6,1, 1 % low entre 164 et 286. L’échauffement système tient (16,1 ms). L’ISS repasse au-dessus : `warmupMaxMs` 24,5 ms, après 15,8 ms au passage précédent.
+
+| Vue | fps 13:26 | 1 % low | p99 | max | fps avant #10 |
+| --- | --- | --- | --- | --- | --- |
+| system | 241 | ≥ 164 | ≤ 6,1 | ≤ 8,4 | ~269 |
+| iss | — | — | — | 6,6 (mesure) | ~298 |
+| autres | 284–300 | ≥ 164 | ≤ 6,1 | ≤ 8,4 | ~300 |
+
+Le 24,5 ms n’est pas une moyenne. Un seul niveau KTX2 de la Terre, 1920×960, fait environ 1,8 Mo une fois transcodé en BC7. Ce niveau partait dans une image de l’échauffement ISS, parfois seul (~16 ms), parfois avec une tuile. Le transcodage reste dans le worker. Le plafond d’envoi passe de 2048 à 1024, donc le plus grand niveau envoyé est 960×480. Un seul fichier KTX2 est en vol, le suivant démarre à l’image d’après. Les tuiles ne génèrent plus leurs mipmaps dans l’image d’upload. Les marques `mip:`, `tile:` et `ktx2-main:` accompagnent un pic dans `window.__HITCHES__`.
+
+La moyenne système, elle, ne venait pas d’une image isolée : la fenêtre mesurée n’a plus aucun pic. Chaque image reconstruisait les 13 orbites (192 échantillons) et les 4 200 astéroïdes, alors qu’à 42 UA un rocher fait moins d’un pixel et que le temps simulé déplace Mercure de bien moins d’un pixel par image. Les orbites ne sont recalculées que si la caméra a bougé, si l’échelle de temps dépasse 64, ou une image sur six. Les ceintures instanciées ne tournent que lorsque la caméra est dans l’anneau, et le mesh est caché si aucun rocher n’est à portée. L’anneau translucide, lui, reste affiché. Le banc indique maintenant la taille du framebuffer (`1920×1080` attendu). L’échauffement reste 60 images.

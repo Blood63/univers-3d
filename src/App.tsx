@@ -2,7 +2,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { HUD } from './hud/HUD'
-import { beginWarp, bindInput, boot, frame } from './engine/runtime'
+import { beginWarp, bindInput, boot, frame, noteFrameSize } from './engine/runtime'
 import { detectMobile, sim } from './engine/state'
 import { createUniverse, type UniverseHandle } from './scene/world'
 import { loadTextures } from './scene/textures'
@@ -115,6 +115,7 @@ function Scene({ textures }: { textures: Record<string, THREE.Texture> }) {
 
   useFrame((_, dt) => {
     markFrameStart()
+    noteFrameSize(gl.domElement.width, gl.domElement.height)
     if (!sim.ready || !handle.current) return
     const w = gl.domElement.clientWidth
     const h = gl.domElement.clientHeight

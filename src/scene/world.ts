@@ -892,6 +892,7 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
     const count = mesh.count
     const years = (sim.jd - J2000) / 365.25
     const maxR = 0.55 * AU
+    let shown = 0
     for (let i = 0; i < count; i++) {
       let radius: number
       let ang: number
@@ -925,6 +926,7 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
       const dy = y - cam64[1]
       const dz = z - cam64[2]
       const near = dx * dx + dy * dy + dz * dz < maxR * maxR
+      if (near) shown += 1
       dummy.position.set(dx, dy, dz)
       dummy.scale.setScalar(near ? size : 0)
       dummy.rotation.set(ang, node, inc)
@@ -932,11 +934,15 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
       mesh.setMatrixAt(i, dummy.matrix)
     }
     mesh.instanceMatrix.needsUpdate = true
-    mesh.visible = sim.band === 'systeme' || sim.band === 'planetaire' || sim.scaleMode === 'orrery'
+    mesh.visible = shown > 0
   }
 
+  let orbitTick = 0
+  let orbitCamX = Number.NaN
+  let orbitCamY = Number.NaN
+  let orbitCamZ = Number.NaN
+
   const update = (dt: number, camera: THREE.PerspectiveCamera, w: number, h: number) => {
-    pumpGpuUploads()
     const time = ((sim.jd - J2000) % 10) * 20
     starMat.uniforms.uDensity.value = sim.starDensity
     starMat.uniforms.uWarp.value = sim.warp
@@ -1044,8 +1050,8 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
                     t.anisotropy = 8
                     t.wrapS = THREE.ClampToEdgeWrapping
                     t.wrapT = THREE.ClampToEdgeWrapping
-                    t.generateMipmaps = true
-                    t.minFilter = THREE.LinearMipmapLinearFilter
+                    t.generateMipmaps = false
+                    t.minFilter = THREE.LinearFilter
                     t.needsUpdate = true
                     tileCache.set(key, t)
                     tileWait.delete(key)
@@ -1233,12 +1239,13 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
     constLines.visible = sim.layers.constellations
 
     const nearSystem = sim.band === 'systeme' || sim.band === 'planetaire' || sim.band === 'sonde' || sim.scaleMode === 'orrery'
-    asteroids.visible = nearSystem
-    kuiper.visible = nearSystem
-    if (nearSystem) {
-      updateBelts(asteroids, beltAsteroids, 2.7 * AU)
-      updateBelts(kuiper, beltKuiper, 40 * AU)
-    }
+    const sunDistNow = Math.hypot(cam64[0], cam64[1], cam64[2])
+    const inAsteroids = sunDistNow > 1.6 * AU && sunDistNow < 4.2 * AU
+    const inKuiper = sunDistNow > 30 * AU && sunDistNow < 52 * AU
+    if (nearSystem && inAsteroids) updateBelts(asteroids, beltAsteroids, 2.7 * AU)
+    else asteroids.visible = false
+    if (nearSystem && inKuiper && (sim.echelle < 3 || (orbitTick & 7) === 0)) updateBelts(kuiper, beltKuiper, 40 * AU)
+    else if (!(nearSystem && inKuiper)) kuiper.visible = false
     beltRing.position.set(-cam64[0], -cam64[1], -cam64[2])
     kuiperRing.position.copy(beltRing.position)
     beltRing.visible = sim.band !== 'sonde' && sim.band !== 'intergalactique'
@@ -1264,9 +1271,19 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
       sim.echelle >= 3 &&
       (sim.band === 'systeme' || sim.band === 'planetaire' || sim.scaleMode === 'orrery') &&
       !(sim.nearestId === 'soleil' && sim.nearestGap < displayRadius('soleil') * 12)
+    orbitTick += 1
+    const camMoved =
+      Number.isNaN(orbitCamX) ||
+      Math.abs(cam64[0] - orbitCamX) + Math.abs(cam64[1] - orbitCamY) + Math.abs(cam64[2] - orbitCamZ) > sunDistNow * 0.002
+    const refreshOrbits = showOrbits && (sim.timeScale >= 64 || camMoved || orbitTick % 6 === 0)
+    if (refreshOrbits) {
+      orbitCamX = cam64[0]
+      orbitCamY = cam64[1]
+      orbitCamZ = cam64[2]
+    }
     for (const [id, line] of orbits) {
       line.visible = showOrbits
-      if (!showOrbits) continue
+      if (!refreshOrbits) continue
       const attr = line.geometry.attributes.position as THREE.BufferAttribute
       const arr = attr.array as Float32Array
       sampleOrbit(id, sim.jd, 192, arr, sim.scaleMode === 'orrery')
@@ -1290,7 +1307,7 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
       const line = pathLines[id]
       const data = probePaths[id]
       line.visible = sim.layers.trajectories && !!data && (sim.echelle >= 3 || id === sim.selected)
-      if (!data) continue
+      if (!data || !line.visible || (sim.echelle >= 3 && !refreshOrbits)) continue
       let attr = line.geometry.attributes.position as THREE.BufferAttribute | undefined
       if (!attr || attr.array.length < data.length) {
         line.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(data.length), 3))
@@ -1465,6 +1482,7 @@ export function createUniverse(tex: Record<string, THREE.Texture>): { object: TH
         a: inFront ? Math.max(0, 1.2 - Math.hypot(v.x, v.y)) * (sim.band === 'sonde' || sim.band === 'planetaire' || sim.band === 'systeme' ? 0.85 : 0.2) : 0,
       }
     }
+    pumpGpuUploads()
     void dt
   }
 
