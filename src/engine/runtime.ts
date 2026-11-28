@@ -318,9 +318,9 @@ function desiredCamera(id: string, out: V3): V3 {
     ly -= uy * along
     lz -= uz * along
     const ll = Math.hypot(lx, ly, lz) || 1
-    out.x = pB.x + ux * 170 + (lx / ll) * 150
-    out.y = pB.y + uy * 170 + (ly / ll) * 150
-    out.z = pB.z + uz * 170 + (lz / ll) * 150
+    out.x = pB.x + ux * 780 + (lx / ll) * 60
+    out.y = pB.y + uy * 780 + (ly / ll) * 60
+    out.z = pB.z + uz * 780 + (lz / ll) * 60
     return out
   }
   const r = displayRadius(id)
@@ -773,19 +773,24 @@ function bootWorker(): void {
   worker.postMessage({ type: 'belts', asteroids: preset[0], kuiper: preset[1] })
 }
 
-let pathsBuilt = false
+let pathCursor = 0
+let pathJobs: [string, number, number, number][] | null = null
 function ensureProbePaths(): void {
-  if (pathsBuilt || !sim.layers.trajectories || sim.echelle > 4) return
-  pathsBuilt = true
-  const jd1 = sim.jd
-  const jobs: [string, number, number, number][] = [
-    ['voyager1', ymdToJD(1977, 9, 5), jd1 + 365.25 * 30, 160],
-    ['voyager2', ymdToJD(1977, 8, 20), jd1 + 365.25 * 30, 180],
-    ['newhorizons', ymdToJD(2006, 1, 19), jd1 + 365.25 * 20, 140],
-    ['pioneer10', ymdToJD(1972, 3, 2), jd1 + 365.25 * 20, 120],
-    ['pioneer11', ymdToJD(1973, 4, 6), jd1 + 365.25 * 20, 120],
-  ]
-  for (const [id, jd0, jdEnd, steps] of jobs) probePaths[id] = trajectorySamples(id, jd0, jdEnd, steps)
+  if (!sim.layers.trajectories || sim.echelle > 4) return
+  if (!pathJobs) {
+    const jd1 = sim.jd
+    pathJobs = [
+      ['voyager1', ymdToJD(1977, 9, 5), jd1 + 365.25 * 30, 160],
+      ['voyager2', ymdToJD(1977, 8, 20), jd1 + 365.25 * 30, 180],
+      ['newhorizons', ymdToJD(2006, 1, 19), jd1 + 365.25 * 20, 140],
+      ['pioneer10', ymdToJD(1972, 3, 2), jd1 + 365.25 * 20, 120],
+      ['pioneer11', ymdToJD(1973, 4, 6), jd1 + 365.25 * 20, 120],
+    ]
+  }
+  if (pathCursor >= pathJobs.length) return
+  const [id, jd0, jdEnd, steps] = pathJobs[pathCursor]
+  pathCursor += 1
+  probePaths[id] = trajectorySamples(id, jd0, jdEnd, steps)
 }
 
 export function refreshBelts(): void {
@@ -882,9 +887,26 @@ export function boot(view: string): void {
 }
 
 const BENCH_VIEWS = ['system', 'iss', 'earth', 'moon', 'mars', 'jupiter', 'saturn', 'ganymede', 'm31'] as const
+const BENCH_WARMUP = 60
+const BENCH_FRAMES = 300
 const benchSamples: number[] = []
-const benchRows: { view: string; fps: number; low: number; ms: number; p99ms: number }[] = []
+const warmupSamples: number[] = []
+type BenchRow = {
+  view: string
+  fps: number
+  low: number
+  ms: number
+  p99ms: number
+  maxMs: number
+  over16: number
+  over33: number
+  warmupFrames: number
+  warmupMs: number
+  warmupMaxMs: number
+}
+const benchRows: BenchRow[] = []
 let benchStep = -1
+let benchWarm = 0
 
 export function startBench(): void {
   sim.benchOn = true
@@ -892,6 +914,8 @@ export function startBench(): void {
   benchStep = 0
   benchRows.length = 0
   benchSamples.length = 0
+  warmupSamples.length = 0
+  benchWarm = 0
   beginBenchView(BENCH_VIEWS[0])
 }
 
@@ -906,24 +930,47 @@ function beginBenchView(name: string): void {
   else if (name === 'm31') focusBody('m31', true)
   else focusBody('iss', true)
   benchSamples.length = 0
+  warmupSamples.length = 0
+  benchWarm = 0
+}
+
+function summarize(samples: number[]): { avg: number; max: number; over16: number; over33: number } {
+  let sum = 0
+  let max = 0
+  let over16 = 0
+  let over33 = 0
+  for (let i = 0; i < samples.length; i++) {
+    const dt = samples[i]
+    sum += dt
+    if (dt > max) max = dt
+    if (dt > 1 / 60) over16 += 1
+    if (dt > 1 / 30) over33 += 1
+  }
+  return { avg: samples.length ? sum / samples.length : 0, max, over16, over33 }
 }
 
 function finishBenchStep(name: string): void {
-  const n = benchSamples.length || 1
-  let sum = 0
-  for (let i = 0; i < benchSamples.length; i++) sum += benchSamples[i]
-  const avg = sum / n
+  const measured = summarize(benchSamples)
+  const warm = summarize(warmupSamples)
   const sorted = benchSamples.slice().sort((a, b) => a - b)
   const cut = Math.max(0, Math.floor(sorted.length * 0.99))
-  const p99 = sorted[Math.min(sorted.length - 1, cut)] ?? avg
+  const p99 = sorted[Math.min(sorted.length - 1, cut)] ?? measured.avg
   benchRows.push({
     view: name,
-    fps: avg > 0 ? 1 / avg : 0,
+    fps: measured.avg > 0 ? 1 / measured.avg : 0,
     low: p99 > 0 ? 1 / p99 : 0,
-    ms: avg * 1000,
+    ms: measured.avg * 1000,
     p99ms: p99 * 1000,
+    maxMs: measured.max * 1000,
+    over16: measured.over16,
+    over33: measured.over33,
+    warmupFrames: warmupSamples.length,
+    warmupMs: warm.avg * 1000,
+    warmupMaxMs: warm.max * 1000,
   })
-  sim.benchNote = benchRows.map((r) => `${r.view} ${r.fps.toFixed(1)} fps · 1% ${r.low.toFixed(1)} · ${r.ms.toFixed(2)} ms · p99 ${r.p99ms.toFixed(2)} ms`).join('\n')
+  sim.benchNote = benchRows
+    .map((r) => `${r.view} ${r.fps.toFixed(1)} fps · 1% ${r.low.toFixed(1)} · ${r.ms.toFixed(2)} ms · p99 ${r.p99ms.toFixed(2)} · max ${r.maxMs.toFixed(1)} · >16.7 ${r.over16} · >33 ${r.over33} · warmup ${r.warmupFrames} max ${r.warmupMaxMs.toFixed(1)} ms`)
+    .join('\n')
   window.__BENCH__ = benchRows.slice()
 }
 
@@ -958,12 +1005,18 @@ export function frame(dt: number, camera: THREE.PerspectiveCamera): void {
   ensureProbePaths()
   for (const fn of syncs) fn(h)
   if (sim.benchOn && !sim.warpActive && benchStep >= 0 && benchStep < BENCH_VIEWS.length) {
-    benchSamples.push(Math.max(dt, 0.0001))
-    if (benchSamples.length >= 300) {
-      finishBenchStep(BENCH_VIEWS[benchStep])
-      benchStep += 1
-      if (benchStep < BENCH_VIEWS.length) beginBenchView(BENCH_VIEWS[benchStep])
-      else sim.benchOn = false
+    const raw = Math.max(dt, 0.0001)
+    if (benchWarm < BENCH_WARMUP) {
+      warmupSamples.push(raw)
+      benchWarm += 1
+    } else {
+      benchSamples.push(raw)
+      if (benchSamples.length >= BENCH_FRAMES) {
+        finishBenchStep(BENCH_VIEWS[benchStep])
+        benchStep += 1
+        if (benchStep < BENCH_VIEWS.length) beginBenchView(BENCH_VIEWS[benchStep])
+        else sim.benchOn = false
+      }
     }
   }
 }

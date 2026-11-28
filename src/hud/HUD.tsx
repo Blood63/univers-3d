@@ -140,7 +140,14 @@ export function HUD({ nonce }: { nonce: number }) {
               <div>DPR ×{sim.dprBias.toFixed(2)}</div>
             </div>
           )}
-          <nav aria-label="Fil d’Ariane" className="pointer-events-auto absolute left-1/2 top-4 z-30 flex max-w-[70vw] -translate-x-1/2 flex-wrap justify-center gap-1">
+          <nav
+            aria-label="Fil d’Ariane"
+            className={
+              sim.mobile
+                ? 'pointer-events-auto absolute left-4 top-[5.6rem] z-30 flex max-w-[42vw] flex-wrap gap-1'
+                : 'pointer-events-auto absolute left-1/2 top-4 z-30 flex max-w-[70vw] -translate-x-1/2 flex-wrap justify-center gap-1'
+            }
+          >
             {shownCrumbs.map((c, i, arr) => (
               <button
                 key={c.id}
@@ -168,7 +175,7 @@ export function HUD({ nonce }: { nonce: number }) {
             <span className="text-[10px] tracking-[0.14em] text-white/50">1 m</span>
           </label>
 
-          <button className={`hud-btn pointer-events-auto absolute ${sim.mobile ? 'left-4 top-24' : 'left-4 top-28'}`} aria-pressed={sim.layersOpen} onClick={() => (sim.layersOpen = !sim.layersOpen)}>
+          <button className={`hud-btn pointer-events-auto absolute ${sim.mobile ? 'left-4 top-[8.4rem]' : 'left-4 top-28'}`} aria-pressed={sim.layersOpen} onClick={() => (sim.layersOpen = !sim.layersOpen)}>
             Calques
           </button>
           {sim.layersOpen && <aside className={`pointer-events-auto absolute z-40 ${sim.mobile ? 'bottom-28 left-3 right-3 max-h-[46vh] overflow-auto' : 'left-4 top-40 w-52'}`}>

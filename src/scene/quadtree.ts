@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { deferBitmap } from '../engine/texcache'
 
 /**
  * Progressive quadtree of real remote mosaics.
@@ -20,8 +21,6 @@ const pending = new Set<string>()
 const failed = new Set<string>()
 let clock = 0
 const MAX = 14
-const loader = new THREE.TextureLoader()
-loader.setCrossOrigin('anonymous')
 
 export function tileCacheCount(): number {
   return slots.length
@@ -110,19 +109,22 @@ export function requestCover(body: QuadBody, uu: number, vv: number, ratio: numb
   }
   if (!pending.has(key) && !failed.has(key)) {
     pending.add(key)
-    loader.load(
+    deferBitmap(
       urlFor(body, z, x, y),
-      (tex) => {
+      (bitmap) => {
+        const tex = new THREE.Texture(bitmap)
+        tex.flipY = false
         tex.colorSpace = THREE.SRGBColorSpace
         tex.anisotropy = 8
         tex.wrapS = THREE.ClampToEdgeWrapping
         tex.wrapT = THREE.ClampToEdgeWrapping
         tex.generateMipmaps = true
+        tex.minFilter = THREE.LinearMipmapLinearFilter
+        tex.needsUpdate = true
         slots.push({ key, tex, last: ++clock })
         pending.delete(key)
         evict(key)
       },
-      undefined,
       () => {
         pending.delete(key)
         failed.add(key)

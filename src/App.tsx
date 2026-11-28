@@ -6,7 +6,7 @@ import { beginWarp, bindInput, boot, frame } from './engine/runtime'
 import { detectMobile, sim } from './engine/state'
 import { createUniverse, type UniverseHandle } from './scene/world'
 import { loadTextures } from './scene/textures'
-import { applyAnisotropy, startHdUpgrade } from './engine/texcache'
+import { applyAnisotropy, bindRenderer, startHdUpgrade } from './engine/texcache'
 
 const PostFX = lazy(() => import('./scene/PostFX'))
 
@@ -38,15 +38,24 @@ function Scene({ textures }: { textures: Record<string, THREE.Texture> }) {
     const built = createUniverse(textures)
     scene.add(built.object)
     handle.current = built.handle
+    bindRenderer(gl)
+    let cancelled = false
     const params = new URLSearchParams(location.search)
-    try {
-      boot(params.get('vue') || 'system')
-      startHdUpgrade(sim.quality)
-    } catch (err) {
-      const message = err instanceof Error ? err.stack ?? err.message : String(err)
-      document.documentElement.dataset.booterr = message.slice(0, 500)
-      sim.ready = true
-    }
+    const renderer = gl as THREE.WebGLRenderer & { compileAsync?: (s: THREE.Scene, c: THREE.Camera) => Promise<void> }
+    const compiled = renderer.compileAsync ? renderer.compileAsync(scene, camera) : Promise.resolve(renderer.compile(scene, camera))
+    void Promise.resolve(compiled)
+      .catch(() => undefined)
+      .then(() => {
+        if (cancelled) return
+        try {
+          boot(params.get('vue') || 'system')
+          startHdUpgrade(sim.quality)
+        } catch (err) {
+          const message = err instanceof Error ? err.stack ?? err.message : String(err)
+          document.documentElement.dataset.booterr = message.slice(0, 500)
+          sim.ready = true
+        }
+      })
     const canvas = gl.domElement
     const onLost = (e: Event) => {
       e.preventDefault()
@@ -78,6 +87,7 @@ function Scene({ textures }: { textures: Record<string, THREE.Texture> }) {
     canvas.addEventListener('pointerup', onUp)
     const pump = window.setInterval(() => setTick((n) => n + 1), 400)
     return () => {
+      cancelled = true
       unbind()
       canvas.removeEventListener('webglcontextlost', onLost)
       canvas.removeEventListener('webglcontextrestored', onRestored)
@@ -139,6 +149,7 @@ export default function App() {
     let lowFor = 0
     let highFor = 0
     const id = window.setInterval(() => {
+      if (sim.benchOn) return
       const cap = sim.quality === 'ultra' ? 1.5 : sim.quality === 'high' ? 1.25 : sim.quality === 'medium' ? 1 : 0.9
       const floor = sim.quality === 'low' ? 0.75 : 0.85
       if (sim.fps > 0 && sim.fps < 55) {
@@ -188,12 +199,9 @@ export default function App() {
             alpha: false,
           }}
           camera={{ fov: 58, near: 0.08, far: 1e32, position: [0, 0, 0] }}
-          onCreated={({ gl, scene, camera }) => {
+          onCreated={({ gl }) => {
             gl.setClearColor('#000005')
             if (textures) applyAnisotropy(textures, gl.capabilities.getMaxAnisotropy())
-            const renderer = gl as THREE.WebGLRenderer & { compileAsync?: (s: THREE.Scene, c: THREE.Camera) => Promise<void> }
-            if (renderer.compileAsync) void renderer.compileAsync(scene, camera)
-            else renderer.compile(scene, camera)
           }}
         >
           <Suspense fallback={null}>

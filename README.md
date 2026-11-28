@@ -48,6 +48,7 @@ Vite, React, TypeScript strict, Three.js / React Three Fiber, shaders GLSL, Zust
 
 - ZQSD (AZERTY) ou WASD, roulis A/E ou Q/E, Espace / C, molette
 - Clic sur un astre : warp. Maj+clic : règle cosmique
-- `Ctrl+K` recherche, `H` photo, `O` échelle réelle / orrery, `P` pause, `M` silence
+- `Ctrl+K` recherche, `H` immersion (masque le HUD), `O` échelle réelle / orrery, `P` pause, `M` silence
+- `?bench=1` mesure 9 vues après 60 images d’échauffement. Le bouton Banc relance la même mesure et exporte un JSON (fps, 1 % low, p99, max, images au-dessus de 16,7 ms et 33 ms, temps d’échauffement).
 
 Le détail des phases et des cycles de polish est dans `DEVLOG.md`. Les licences des textures sont dans `CREDITS.md`.
